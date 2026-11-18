@@ -1256,14 +1256,16 @@ func scrollIntoViewIfNeeded(pid: pid_t, point: CGPoint) async -> CGPoint {
             scrollEvent.post(tap: .cghidEventTap)
             try? await Task.sleep(nanoseconds: 100_000_000)
 
-            // Debug: check where the target element currently is
-            if step % 5 == 1 || step <= 3 {
-                if let el = targetElement, let frame = getAXElementFrame(el) {
-                    fputs("log: scrollIntoViewIfNeeded: step \(step): element frame=\(frame)\n", stderr)
-                }
+            // Cheap check first: the element we already hold (2 AX calls instead of a full tree walk)
+            if let el = targetElement, let frame = getAXElementFrame(el),
+               windowBounds.insetBy(dx: 0, dy: 15).contains(CGPoint(x: frame.midX, y: frame.midY)) {
+                fputs("log: scrollIntoViewIfNeeded: \"\(targetText)\" in view at \(frame) after \(step) steps\n", stderr)
+                try? await Task.sleep(nanoseconds: 100_000_000)
+                return CGPoint(x: frame.midX, y: frame.midY)
             }
 
-            if let foundCenter = findElementByText(root: windowElement, text: targetText, viewport: windowBounds) {
+            // Full tree search only every 5th step, in case the app recreated the element
+            if step % 5 == 0, let foundCenter = findElementByText(root: windowElement, text: targetText, viewport: windowBounds) {
                 fputs("log: scrollIntoViewIfNeeded: found \"\(targetText)\" at \(foundCenter) after \(step) steps\n", stderr)
                 try? await Task.sleep(nanoseconds: 100_000_000)
                 return foundCenter
