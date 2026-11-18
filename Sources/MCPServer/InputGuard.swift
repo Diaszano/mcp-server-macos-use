@@ -329,12 +329,6 @@ private func inputGuardCallback(
         return Unmanaged.passUnretained(event)
     }
 
-    // Log every hardware event for debugging
-    if type == .keyDown || type == .keyUp {
-        let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
-        fputs("log: InputGuard TAP: \(type == .keyDown ? "keyDown" : "keyUp") keyCode=\(keyCode) sourceState=\(sourceStateID)\n", stderr)
-    }
-
     // Check for plain Esc key (keycode 53, no modifiers)
     if type == .keyDown {
         let keyCode = event.getIntegerValueField(.keyboardEventKeycode)

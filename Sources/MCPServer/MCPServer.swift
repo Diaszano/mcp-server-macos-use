@@ -1547,7 +1547,7 @@ func setupAndStartServer() async throws -> Server {
     // --- UPDATED CallTool Handler (Direct SDK Call) ---
     await server.withMethodHandler(CallTool.self) { params in
         fputs("log: handler(CallTool): received request for tool: \(params.name).\n", stderr)
-        fputs("log: handler(CallTool): arguments received (raw MCP): \(params.arguments?.debugDescription ?? "nil")\n", stderr)
+        fputs("log: handler(CallTool): argument keys: \(params.arguments?.keys.sorted() ?? [])\n", stderr)
 
         // Declared outside `do` so they're accessible in `catch InputGuardCancelled`
         var savedFrontmostApp: NSRunningApplication? = nil
@@ -1794,8 +1794,6 @@ func setupAndStartServer() async throws -> Server {
                 throw MCPError.methodNotFound(params.name)
             }
 
-            fputs("log: handler(CallTool): constructed PrimaryAction: \(primaryAction)\n", stderr)
-
             // --- Determine if this tool is disruptive (takes over input/focus) ---
             let isDisruptive = params.name != refreshTool.name
 
@@ -1868,7 +1866,7 @@ func setupAndStartServer() async throws -> Server {
                     let _ = await Task { @MainActor in
                         return await performAction(action: .input(action: additionalAction), optionsInput: minOpts)
                     }.value
-                    fputs("log: handler(CallTool): composed — additional action \(additionalAction) done.\n", stderr)
+                    fputs("log: handler(CallTool): composed — additional action done.\n", stderr)
                 }
                 if isDisruptive { try InputGuard.shared.throwIfCancelled() }
 
