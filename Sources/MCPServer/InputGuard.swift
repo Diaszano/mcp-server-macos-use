@@ -138,9 +138,7 @@ final class InputGuard: @unchecked Sendable {
             userInfo: refcon
         ) else {
             fputs("error: InputGuard: failed to create CGEventTap (check Accessibility permissions)\n", stderr)
-            lock.lock()
-            _engaged = false
-            lock.unlock()
+            // keep _engaged so disengage() still removes the overlay
             return
         }
 
