@@ -1932,6 +1932,9 @@ func setupAndStartServer() async throws -> Server {
                 }
             }
 
+            // Capture before restoring focus, otherwise the restored app looks like an app switch
+            let frontmostAfterAction = NSWorkspace.shared.frontmostApplication
+
             // --- Restore cursor position ---
             if let pos = savedCursorPos,
                let moveEvent = CGEvent(mouseEventSource: nil, mouseType: .mouseMoved,
@@ -1955,9 +1958,8 @@ func setupAndStartServer() async throws -> Server {
             // --- Detect cross-app handoff ---
             // After diff-based actions, check if a different app became frontmost
             if hasDiff, let originalPid = options.pidForTraversal {
-                let frontmostPid = NSWorkspace.shared.frontmostApplication?.processIdentifier
-                if let newPid = frontmostPid, newPid != originalPid {
-                    let frontmostName = NSWorkspace.shared.frontmostApplication?.localizedName ?? "Unknown"
+                if let newPid = frontmostAfterAction?.processIdentifier, newPid != originalPid {
+                    let frontmostName = frontmostAfterAction?.localizedName ?? "Unknown"
                     fputs("log: handler(CallTool): app switch detected! Original PID \(originalPid) -> new frontmost PID \(newPid) (\(frontmostName))\n", stderr)
                     toolResponse.appSwitchPid = newPid
                     toolResponse.appSwitchAppName = frontmostName
