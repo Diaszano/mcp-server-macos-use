@@ -16,6 +16,11 @@ struct ElementSearchTests {
         #expect(rankElementMatches(els, search: "Save", role: nil).first?.in_viewport == true)
     }
 
+    @Test func test_rank_prefersVisiblePartialOverHiddenExact() {
+        let els = [el("AXButton", "Save", visible: false), el("AXButton", "Save As…", visible: true)]
+        #expect(rankElementMatches(els, search: "Save", role: nil).first?.text == "Save As…")
+    }
+
     @Test func test_rank_respectsRoleAndReturnsEmpty() {
         #expect(rankElementMatches([el("AXStaticText", "Save")], search: "Save", role: "AXButton").isEmpty)
     }

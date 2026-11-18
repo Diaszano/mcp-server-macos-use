@@ -713,7 +713,7 @@ func mergeComposedResults(primary: ActionResult, additional: [ActionResult], fin
 }
 
 /// Elements whose text contains `search` (case-insensitive), with a frame and an optional role prefix,
-/// ordered so exact text matches come first, then on-screen ones.
+/// ordered on-screen first, then exact text matches.
 func rankElementMatches(_ elements: [EnrichedElementData], search: String, role: String?) -> [EnrichedElementData] {
     let searchLower = search.lowercased()
     let roleLower = role?.lowercased()
@@ -726,7 +726,8 @@ func rankElementMatches(_ elements: [EnrichedElementData], search: String, role:
             && (roleLower == nil || elem.role.lowercased().hasPrefix(roleLower!))
     }
     func score(_ e: EnrichedElementData) -> Int {
-        (e.text?.lowercased() == searchLower ? 2 : 0) + (e.in_viewport == true ? 1 : 0)
+        // on-screen outranks exact text: a hidden exact match must not beat a visible partial one
+        (e.in_viewport == true ? 2 : 0) + (e.text?.lowercased() == searchLower ? 1 : 0)
     }
     // enumerated() keeps traversal order among equal scores (sort isn't guaranteed stable)
     return matches.enumerated()
@@ -1257,7 +1258,8 @@ func scrollIntoViewIfNeeded(pid: pid_t, point: CGPoint) async -> CGPoint {
             try? await Task.sleep(nanoseconds: 100_000_000)
 
             // Cheap check first: the element we already hold (2 AX calls instead of a full tree walk)
-            if let el = targetElement, let frame = getAXElementFrame(el),
+            // Re-check text: lists that reuse rows may show a different item in the same element
+            if let el = targetElement, getAXElementText(el) == targetText, let frame = getAXElementFrame(el),
                windowBounds.insetBy(dx: 0, dy: 15).contains(CGPoint(x: frame.midX, y: frame.midY)) {
                 fputs("log: scrollIntoViewIfNeeded: \"\(targetText)\" in view at \(frame) after \(step) steps\n", stderr)
                 try? await Task.sleep(nanoseconds: 100_000_000)
