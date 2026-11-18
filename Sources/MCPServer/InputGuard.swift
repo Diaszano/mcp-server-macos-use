@@ -31,13 +31,6 @@ final class InputGuard: @unchecked Sendable {
     private var _engaged = false
     private var _cancelled = false
 
-    /// Whether the guard is currently blocking input.
-    var isEngaged: Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        return _engaged
-    }
-
     /// Whether the user pressed Esc to cancel the current automation.
     /// Reset to false each time `engage()` is called.
     var wasCancelled: Bool {
@@ -46,14 +39,10 @@ final class InputGuard: @unchecked Sendable {
         return _cancelled
     }
 
-    /// Callback invoked when the user presses Esc to cancel. Called on an arbitrary thread.
-    var onUserCancelled: (() -> Void)?
-
     /// Throws if the user cancelled via Esc. Call this between automation steps.
     func throwIfCancelled() throws {
         let cancelled = wasCancelled
         fputs("log: InputGuard: throwIfCancelled — wasCancelled=\(cancelled)\n", stderr)
-        try? "throwIfCancelled: wasCancelled=\(cancelled) at \(Date())".write(toFile: "/tmp/macos-use/cancel_check.txt", atomically: true, encoding: .utf8)
         if cancelled {
             throw InputGuardCancelled()
         }
@@ -80,11 +69,11 @@ final class InputGuard: @unchecked Sendable {
         // so the main run loop can still process event tap callbacks during automation.
         if Thread.isMainThread {
             createEventTap()
-            showOverlaySync(message: message)
+            buildAndShowOverlay(message: message)
         } else {
             DispatchQueue.main.sync {
                 self.createEventTap()
-                self.showOverlaySync(message: message)
+                self.buildAndShowOverlay(message: message)
             }
         }
 
@@ -149,7 +138,6 @@ final class InputGuard: @unchecked Sendable {
         CGEvent.tapEnable(tap: tap, enable: true)
         let isEnabled = CGEvent.tapIsEnabled(tap: tap)
         fputs("log: InputGuard: CGEventTap created on main run loop, enabled=\(isEnabled)\n", stderr)
-        try? "tap_created: enabled=\(isEnabled) at \(Date())".write(toFile: "/tmp/macos-use/tap_status.txt", atomically: true, encoding: .utf8)
     }
 
     private func destroyEventTap() {
@@ -184,18 +172,6 @@ final class InputGuard: @unchecked Sendable {
     }
 
     // MARK: - Overlay Window
-
-    /// Show overlay synchronously (must be called on main thread).
-    private func showOverlaySync(message: String) {
-        assert(Thread.isMainThread, "showOverlaySync must be called on main thread")
-        buildAndShowOverlay(message: message)
-    }
-
-    private func showOverlay(message: String) {
-        DispatchQueue.main.async { [weak self] in
-            self?.buildAndShowOverlay(message: message)
-        }
-    }
 
     private func buildAndShowOverlay(message: String) {
         // Ensure NSApplication is set up (no-op if already initialized)
@@ -290,7 +266,6 @@ final class InputGuard: @unchecked Sendable {
         _cancelled = true
         lock.unlock()
         disengage()
-        onUserCancelled?()
     }
 
     /// Re-enable the tap if macOS auto-disabled it.
@@ -335,8 +310,6 @@ private func inputGuardCallback(
         let flags = event.flags
         let modifierMask: CGEventFlags = [.maskCommand, .maskControl, .maskAlternate, .maskShift]
         if keyCode == 53 && flags.intersection(modifierMask).isEmpty {
-            // Write marker file so we can verify Esc was detected
-            try? "esc_at_\(Date())".write(toFile: "/tmp/macos-use/esc_pressed.txt", atomically: true, encoding: .utf8)
             guard_.handleEscPressed()
             return nil // Suppress the Esc event
         }

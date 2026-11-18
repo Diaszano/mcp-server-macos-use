@@ -5,20 +5,6 @@ import ApplicationServices // For AXUIElement APIs (scroll-into-view, window bou
 import AppKit // For NSEvent.mouseLocation (cursor position save/restore)
 import MacosUseSDK // <-- Import the SDK
 
-// --- Helper to serialize Swift structs to JSON String ---
-func serializeToJsonString<T: Encodable>(_ value: T) -> String? {
-    let encoder = JSONEncoder()
-    // Use pretty printing for easier debugging of the output if needed
-    encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
-    do {
-        let jsonData = try encoder.encode(value)
-        return String(data: jsonData, encoding: .utf8)
-    } catch {
-        fputs("error: serializeToJsonString: failed to encode value to JSON: \(error)\n", stderr)
-        return nil
-    }
-}
-
 // --- Function to get arguments from MCP Value ---
 // Helper to extract typed values safely
 func getRequiredString(from args: [String: Value]?, key: String) throws -> String {
@@ -1561,30 +1547,6 @@ func setupAndStartServer() async throws -> Server {
         )
     )
     fputs("log: setupAndStartServer: server instance created (\(server.name)) version \(server.version).\n", stderr)
-
-    // --- Dummy Handlers (ReadResource, ListResources, ListPrompts) ---
-    // (Keep these as they are part of the MCP spec, even if unused for now)
-    await server.withMethodHandler(ReadResource.self) { params in
-        let uri = params.uri
-        fputs("log: handler(ReadResource): received request for uri: \(uri) (dummy handler)\n", stderr)
-        // In a real scenario, you might fetch resource content here
-        return .init(contents: [.text("dummy content for \(uri)", uri: uri)])
-    }
-    fputs("log: setupAndStartServer: registered ReadResource handler (dummy).\n", stderr)
-
-    await server.withMethodHandler(ListResources.self) { _ in
-        fputs("log: handler(ListResources): received request (dummy handler).\n", stderr)
-        // In a real scenario, list available resources
-        return ListResources.Result(resources: [])
-    }
-    fputs("log: setupAndStartServer: registered ListResources handler (dummy).\n", stderr)
-
-    await server.withMethodHandler(ListPrompts.self) { _ in
-        fputs("log: handler(ListPrompts): received request (dummy handler).\n", stderr)
-        // In a real scenario, list available prompts
-        return ListPrompts.Result(prompts: [])
-    }
-    fputs("log: setupAndStartServer: registered ListPrompts handler (dummy).\n", stderr)
 
     // --- ListTools Handler ---
     await server.withMethodHandler(ListTools.self) { _ in
