@@ -1068,6 +1068,38 @@ func buildFlatTextResponse(_ toolResponse: ToolResponse) -> String {
     return lines.joined(separator: "\n")
 }
 
+// --- Response Output Directory ---
+
+/// Per-user temp dir (/var/folders/..., not shared /tmp) so other local users can't read screen contents.
+let responseOutputDir = (NSTemporaryDirectory() as NSString).appendingPathComponent("macos-use")
+
+/// Create the output dir as owner-only (0700). Refuses a pre-existing dir owned by someone else.
+func prepareOutputDirectory(_ path: String) throws {
+    let fm = FileManager.default
+    if fm.fileExists(atPath: path) {
+        let owner = (try fm.attributesOfItem(atPath: path)[.ownerAccountID] as? NSNumber)?.uint32Value
+        guard owner == getuid() else {
+            throw MCPError.internalError("Output directory \(path) is not owned by the current user")
+        }
+        try fm.setAttributes([.posixPermissions: 0o700], ofItemAtPath: path)
+    } else {
+        try fm.createDirectory(atPath: path, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+    }
+}
+
+/// Delete response .txt/.png files older than `age` seconds.
+func pruneResponseFiles(in dir: String, olderThan age: TimeInterval, now: Date = Date()) {
+    let fm = FileManager.default
+    guard let names = try? fm.contentsOfDirectory(atPath: dir) else { return }
+    let cutoff = now.addingTimeInterval(-age)
+    for name in names where name.hasSuffix(".txt") || name.hasSuffix(".png") {
+        let path = (dir as NSString).appendingPathComponent(name)
+        if let modified = try? fm.attributesOfItem(atPath: path)[.modificationDate] as? Date, modified < cutoff {
+            try? fm.removeItem(atPath: path)
+        }
+    }
+}
+
 // --- Direct AX Element Interaction ---
 
 // --- Auto-Scroll via Scroll Wheel Events ---
@@ -1956,15 +1988,15 @@ func setupAndStartServer() async throws -> Server {
             }
 
             // --- Write flat text to file, return compact summary ---
-            let outputDir = "/tmp/macos-use"
-            try? FileManager.default.createDirectory(atPath: outputDir, withIntermediateDirectories: true)
+            let outputDir = responseOutputDir
+            try prepareOutputDirectory(outputDir)
 
             let timestamp = Int(Date().timeIntervalSince1970 * 1000) // ms precision to avoid collisions
             let safeName = params.name.replacingOccurrences(of: "macos-use_", with: "")
             let filename = "\(timestamp)_\(safeName).txt"
             let filepath = "\(outputDir)/\(filename)"
             try? resultTextString.write(toFile: filepath, atomically: true, encoding: .utf8)
-            fputs("log: handler(CallTool): wrote full response to \(filepath) (\(resultTextString.count) bytes)\n", stderr)
+            fputs("log: handler(CallTool): wrote full response to \(filepath) (\(resultTextString.utf8.count) bytes)\n", stderr)
 
             // --- Capture window screenshot ---
             var screenshotPath: String? = nil
@@ -1976,7 +2008,7 @@ func setupAndStartServer() async throws -> Server {
                 screenshotPath = captureWindowScreenshot(pid: pid, outputPath: screenshotFilepath, clickPoint: lastClickPoint, traversalWindowBounds: toolResponse.windowBounds)
             }
 
-            let summary = buildCompactSummary(toolName: params.name, params: params, toolResponse: toolResponse, filepath: filepath, fileSize: resultTextString.count, screenshotPath: screenshotPath)
+            let summary = buildCompactSummary(toolName: params.name, params: params, toolResponse: toolResponse, filepath: filepath, fileSize: resultTextString.utf8.count, screenshotPath: screenshotPath)
             fputs("log: handler(CallTool): returning compact summary (\(summary.count) chars)\n", stderr)
 
             return .init(content: [.text(text: summary, annotations: nil, _meta: nil)], isError: isError)
@@ -2032,6 +2064,8 @@ struct MCPServer {
         let server: Server
         do {
             fputs("log: main: calling setupAndStartServer()...\n", stderr)
+            try? prepareOutputDirectory(responseOutputDir)
+            pruneResponseFiles(in: responseOutputDir, olderThan: 86_400)
             server = try await setupAndStartServer()
             fputs("log: main: setupAndStartServer() successful, server instance obtained.\n", stderr)
 
