@@ -724,6 +724,16 @@ func buildToolResponse(_ result: ActionResult, hasDiff: Bool) -> ToolResponse {
     return response
 }
 
+/// Combine composed-mode results: before-state from the primary action, after-state from the
+/// final traversal, and the first error from the primary or any chained action.
+func mergeComposedResults(primary: ActionResult, additional: [ActionResult], final: ActionResult) -> ActionResult {
+    var combined = primary
+    combined.traversalAfter = final.traversalAfter
+    combined.traversalAfterError = final.traversalAfterError
+    combined.primaryActionError = primary.primaryActionError ?? additional.lazy.compactMap(\.primaryActionError).first
+    return combined
+}
+
 // --- Compact Summary Builder (file-based MCP responses) ---
 
 /// Build a concise text summary for the MCP response instead of returning the full JSON.
@@ -1865,6 +1875,9 @@ func setupAndStartServer() async throws -> Server {
                 InputGuard.shared.engage(message: "AI: \(toolDesc) — press Esc to cancel")
             }
 
+            // Composed mode clears hasDiff, but app-switch detection still applies to every input action
+            let isInputAction = hasDiff
+
             // --- Execute the Action using MacosUseSDK ---
             let actionResult: ActionResult
             if additionalActions.isEmpty {
@@ -1892,12 +1905,13 @@ func setupAndStartServer() async throws -> Server {
                 // Step 2: Additional actions (type, press) — no traversal, just input
                 var minOpts = ActionOptions(showAnimation: false)
                 minOpts.pidForTraversal = options.pidForTraversal
+                var additionalResults: [ActionResult] = []
                 for additionalAction in additionalActions {
                     try? await Task.sleep(nanoseconds: 100_000_000) // 100ms between actions
                     if isDisruptive { try InputGuard.shared.throwIfCancelled() }
-                    let _ = await Task { @MainActor in
+                    additionalResults.append(await Task { @MainActor in
                         return await performAction(action: .input(action: additionalAction), optionsInput: minOpts)
-                    }.value
+                    }.value)
                     fputs("log: handler(CallTool): composed — additional action done.\n", stderr)
                 }
                 if isDisruptive { try InputGuard.shared.throwIfCancelled() }
@@ -1910,13 +1924,9 @@ func setupAndStartServer() async throws -> Server {
                 }.value
                 fputs("log: handler(CallTool): composed — final traversal done.\n", stderr)
 
-                // Combine: before from primary result, after from final traversal
-                var combined = primaryResult
-                combined.traversalAfter = finalResult.traversalAfter
-                combined.traversalAfterError = finalResult.traversalAfterError
                 // No diff in composed mode (before/after still present for context)
                 hasDiff = false
-                actionResult = combined
+                actionResult = mergeComposedResults(primary: primaryResult, additional: additionalResults, final: finalResult)
             }
 
             // --- Disengage input guard and check for late cancellation ---
@@ -1957,7 +1967,7 @@ func setupAndStartServer() async throws -> Server {
 
             // --- Detect cross-app handoff ---
             // After diff-based actions, check if a different app became frontmost
-            if hasDiff, let originalPid = options.pidForTraversal {
+            if isInputAction, let originalPid = options.pidForTraversal {
                 if let newPid = frontmostAfterAction?.processIdentifier, newPid != originalPid {
                     let frontmostName = frontmostAfterAction?.localizedName ?? "Unknown"
                     fputs("log: handler(CallTool): app switch detected! Original PID \(originalPid) -> new frontmost PID \(newPid) (\(frontmostName))\n", stderr)
