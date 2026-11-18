@@ -10,7 +10,7 @@ let package = Package(
     ],
     dependencies: [
         .package(url: "https://github.com/modelcontextprotocol/swift-sdk.git", from: "0.12.1"),
-        .package(url: "https://github.com/mediar-ai/MacosUseSDK.git", branch: "main")
+        .package(url: "https://github.com/mediar-ai/MacosUseSDK.git", revision: "a2d7866355bca07faf476c5d180c8664b1992f8c")
     ],
     targets: [
         .executableTarget(
