@@ -23,3 +23,6 @@ bun.lockb
 
 # SEO plugin build artifact (regenerated at build time)
 seo-guides-manifest.json
+
+.worktree/
+.superpowers/
