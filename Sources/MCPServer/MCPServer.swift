@@ -29,50 +29,17 @@ func getRequiredString(from args: [String: Value]?, key: String) throws -> Strin
 }
 
 func getRequiredDouble(from args: [String: Value]?, key: String) throws -> Double {
-    guard let value = args?[key] else {
+    guard let value = try getOptionalDouble(from: args, key: key) else {
         throw MCPError.invalidParams("Missing required number argument: '\(key)'")
     }
-    switch value {
-    case .int(let intValue):
-        fputs("log: getRequiredDouble: converting int \(intValue) to double for key '\(key)'\n", stderr)
-        return Double(intValue)
-    case .double(let doubleValue):
-        return doubleValue
-    case .string(let stringValue):
-        if let doubleValue = Double(stringValue) {
-            fputs("log: getRequiredDouble: converting string \"\(stringValue)\" to double for key '\(key)'\n", stderr)
-            return doubleValue
-        }
-        throw MCPError.invalidParams("Invalid type for required number argument: '\(key)', string \"\(stringValue)\" is not a valid number")
-    default:
-        throw MCPError.invalidParams("Invalid type for required number argument: '\(key)', expected Int, Double, or numeric String, got \(value)")
-    }
+    return value
 }
 
 func getRequiredInt(from args: [String: Value]?, key: String) throws -> Int {
-    guard let value = args?[key] else {
+    guard let value = try getOptionalInt(from: args, key: key) else {
         throw MCPError.invalidParams("Missing required integer argument: '\(key)'")
     }
-    // Allow conversion from Double if it's an exact integer
-    if let doubleValue = value.doubleValue {
-        if let intValue = Int(exactly: doubleValue) {
-             fputs("log: getRequiredInt: converting exact double \(doubleValue) to int for key '\(key)'\n", stderr)
-             return intValue
-        } else {
-            fputs("warning: getRequiredInt: received non-exact double \(doubleValue) for key '\(key)', expecting integer.\n", stderr)
-            throw MCPError.invalidParams("Invalid type for required integer argument: '\(key)', received non-exact Double \(doubleValue)")
-        }
-    }
-    // Allow conversion from String (MCP clients may send numbers as strings)
-    if let stringValue = value.stringValue, let intValue = Int(stringValue) {
-        fputs("log: getRequiredInt: converting string \"\(stringValue)\" to int for key '\(key)'\n", stderr)
-        return intValue
-    }
-    // Otherwise, require it to be an Int directly
-    guard let intValue = value.intValue else {
-        throw MCPError.invalidParams("Invalid type for required integer argument: '\(key)', expected Int, exact Double, or numeric String, got \(value)")
-    }
-    return intValue
+    return value
 }
 
 
@@ -129,6 +96,31 @@ func getOptionalBool(from args: [String: Value]?, key: String) throws -> Bool? {
          throw MCPError.invalidParams("Invalid type for optional boolean argument: '\(key)', expected Bool, got \(value)")
      }
      return boolValue
+}
+
+/// Click point from required x/y; centered on the element when width and height are given.
+func hitPoint(from args: [String: Value]?) throws -> CGPoint {
+    let x = try getRequiredDouble(from: args, key: "x")
+    let y = try getRequiredDouble(from: args, key: "y")
+    if let w = try getOptionalDouble(from: args, key: "width"),
+       let h = try getOptionalDouble(from: args, key: "height") {
+        return CGPoint(x: x + w / 2, y: y + h / 2)
+    }
+    return CGPoint(x: x, y: y)
+}
+
+/// x/y for summary text; missing or invalid values read as 0.
+func optionalPoint(from args: [String: Value]?) -> (x: Int, y: Int) {
+    let x = (try? getOptionalDouble(from: args, key: "x")) ?? nil
+    let y = (try? getOptionalDouble(from: args, key: "y")) ?? nil
+    return (Int(x ?? 0), Int(y ?? 0))
+}
+
+/// Bring the target app to the front so input lands in it.
+func activateApp(pid: pid_t) async {
+    guard let runningApp = NSRunningApplication(processIdentifier: pid) else { return }
+    runningApp.activate(options: [])
+    try? await Task.sleep(nanoseconds: 200_000_000) // 200ms for activation
 }
 
 // --- NEW Helper to parse modifier flags ---
@@ -826,9 +818,8 @@ func buildCompactSummary(toolName: String, params: CallTool.Parameters, toolResp
             let roleDesc = roleFilter != nil ? " [\(roleFilter!)]" : ""
             summaryLine = "\(clickType) element '\(elemSearch)'\(roleDesc). \(diffSummary)"
         } else {
-            let x = params.arguments?["x"]?.doubleValue ?? params.arguments?["x"]?.intValue.map(Double.init) ?? 0
-            let y = params.arguments?["y"]?.doubleValue ?? params.arguments?["y"]?.intValue.map(Double.init) ?? 0
-            summaryLine = "\(clickType) at (\(Int(x)),\(Int(y))). \(diffSummary)"
+            let (x, y) = optionalPoint(from: params.arguments)
+            summaryLine = "\(clickType) at (\(x),\(y)). \(diffSummary)"
         }
 
     case "macos-use_type_and_traverse":
@@ -845,11 +836,10 @@ func buildCompactSummary(toolName: String, params: CallTool.Parameters, toolResp
         summaryLine = "Pressed \(keyDesc). \(diffSummary)"
 
     case "macos-use_scroll_and_traverse":
-        let x = params.arguments?["x"]?.doubleValue ?? params.arguments?["x"]?.intValue.map(Double.init) ?? 0
-        let y = params.arguments?["y"]?.doubleValue ?? params.arguments?["y"]?.intValue.map(Double.init) ?? 0
+        let (x, y) = optionalPoint(from: params.arguments)
         let deltaY = params.arguments?["deltaY"]?.intValue ?? 0
         let diffSummary = buildDiffSummary(toolResponse.diff)
-        summaryLine = "Scrolled deltaY=\(deltaY) at (\(Int(x)),\(Int(y))). \(diffSummary)"
+        summaryLine = "Scrolled deltaY=\(deltaY) at (\(x),\(y)). \(diffSummary)"
 
     case "macos-use_refresh_traversal":
         if let traversal = toolResponse.traversal {
@@ -861,25 +851,22 @@ func buildCompactSummary(toolName: String, params: CallTool.Parameters, toolResp
         }
 
     case "macos-use_set_value_and_traverse":
-        let x = params.arguments?["x"]?.doubleValue ?? params.arguments?["x"]?.intValue.map(Double.init) ?? 0
-        let y = params.arguments?["y"]?.doubleValue ?? params.arguments?["y"]?.intValue.map(Double.init) ?? 0
+        let (x, y) = optionalPoint(from: params.arguments)
         let value = params.arguments?["value"]?.stringValue ?? ""
         let truncatedValue = value.count > 40 ? String(value.prefix(40)) + "..." : value
         let diffSummary = buildDiffSummary(toolResponse.diff)
-        summaryLine = "AX set value '\(truncatedValue)' at (\(Int(x)),\(Int(y))). \(diffSummary)"
+        summaryLine = "AX set value '\(truncatedValue)' at (\(x),\(y)). \(diffSummary)"
 
     case "macos-use_press_ax_and_traverse":
-        let x = params.arguments?["x"]?.doubleValue ?? params.arguments?["x"]?.intValue.map(Double.init) ?? 0
-        let y = params.arguments?["y"]?.doubleValue ?? params.arguments?["y"]?.intValue.map(Double.init) ?? 0
+        let (x, y) = optionalPoint(from: params.arguments)
         let diffSummary = buildDiffSummary(toolResponse.diff)
-        summaryLine = "AX pressed element at (\(Int(x)),\(Int(y))). \(diffSummary)"
+        summaryLine = "AX pressed element at (\(x),\(y)). \(diffSummary)"
 
     case "macos-use_set_selected_and_traverse":
-        let x = params.arguments?["x"]?.doubleValue ?? params.arguments?["x"]?.intValue.map(Double.init) ?? 0
-        let y = params.arguments?["y"]?.doubleValue ?? params.arguments?["y"]?.intValue.map(Double.init) ?? 0
+        let (x, y) = optionalPoint(from: params.arguments)
         let sel = params.arguments?["selected"]?.boolValue ?? true
         let diffSummary = buildDiffSummary(toolResponse.diff)
-        summaryLine = "AX set selected=\(sel) at (\(Int(x)),\(Int(y))). \(diffSummary)"
+        summaryLine = "AX set selected=\(sel) at (\(x),\(y)). \(diffSummary)"
 
     default:
         summaryLine = "Tool \(toolName) completed."
@@ -1697,22 +1684,12 @@ func setupAndStartServer() async throws -> Server {
                           let y = try getOptionalDouble(from: params.arguments, key: "y") else {
                         throw MCPError.invalidParams("Either 'element' or both 'x' and 'y' must be provided for click tool")
                     }
-                    let w = try getOptionalDouble(from: params.arguments, key: "width")
-                    let h = try getOptionalDouble(from: params.arguments, key: "height")
-                    if let w = w, let h = h {
-                        rawPoint = CGPoint(x: x + w / 2, y: y + h / 2)
-                        fputs("log: click_and_traverse: centering (\(x),\(y)) + size(\(w)×\(h)) → \(rawPoint)\n", stderr)
-                    } else {
-                        rawPoint = CGPoint(x: x, y: y)
-                    }
+                    rawPoint = try hitPoint(from: params.arguments)
+                    fputs("log: click_and_traverse: (\(x),\(y)) → click point \(rawPoint)\n", stderr)
                 }
 
                 // Activate the target app before clicking so the click registers correctly
-                if let runningApp = NSRunningApplication(processIdentifier: reqPid) {
-                    runningApp.activate(options: [])
-                    fputs("log: click_and_traverse: activated app pid=\(reqPid)\n", stderr)
-                    try? await Task.sleep(nanoseconds: 200_000_000) // 200ms for activation
-                }
+                await activateApp(pid: reqPid)
                 // Auto-scroll element into view if it's outside the visible window area
                 let adjustedPoint = await scrollIntoViewIfNeeded(pid: reqPid, point: rawPoint)
                 lastClickPoint = adjustedPoint
@@ -1769,12 +1746,7 @@ func setupAndStartServer() async throws -> Server {
                 let deltaY = try getRequiredInt(from: params.arguments, key: "deltaY")
                 let deltaX = try getOptionalInt(from: params.arguments, key: "deltaX") ?? 0
                 let scrollPoint = CGPoint(x: x, y: y)
-                // Activate the target app before scrolling so the event registers correctly
-                if let runningApp = NSRunningApplication(processIdentifier: reqPid) {
-                    runningApp.activate(options: [])
-                    fputs("log: scroll_and_traverse: activated app pid=\(reqPid)\n", stderr)
-                    try? await Task.sleep(nanoseconds: 200_000_000) // 200ms for activation
-                }
+                await activateApp(pid: reqPid)
                 primaryAction = .input(action: .scroll(point: scrollPoint, deltaY: Int32(deltaY), deltaX: Int32(deltaX)))
                 options.pidForTraversal = reqPid
                 options.showDiff = true
@@ -1782,59 +1754,32 @@ func setupAndStartServer() async throws -> Server {
 
             case setValueTool.name:
                 guard let reqPid = pidForOptions else { throw MCPError.invalidParams("Missing required 'pid' for set value tool") }
-                let x = try getRequiredDouble(from: params.arguments, key: "x")
-                let y = try getRequiredDouble(from: params.arguments, key: "y")
+                let point = try hitPoint(from: params.arguments)
                 let value = try getRequiredString(from: params.arguments, key: "value")
-                let w = try getOptionalDouble(from: params.arguments, key: "width")
-                let h = try getOptionalDouble(from: params.arguments, key: "height")
-                let hitPoint: CGPoint = (w != nil && h != nil)
-                    ? CGPoint(x: x + w! / 2, y: y + h! / 2)
-                    : CGPoint(x: x, y: y)
-                if let runningApp = NSRunningApplication(processIdentifier: reqPid) {
-                    runningApp.activate(options: [])
-                    try? await Task.sleep(nanoseconds: 200_000_000)
-                }
-                lastClickPoint = hitPoint
-                primaryAction = .input(action: .axSetValue(point: hitPoint, value: value, pid: reqPid))
+                await activateApp(pid: reqPid)
+                lastClickPoint = point
+                primaryAction = .input(action: .axSetValue(point: point, value: value, pid: reqPid))
                 options.pidForTraversal = reqPid
                 options.showDiff = true
                 hasDiff = true
 
             case pressAXTool.name:
                 guard let reqPid = pidForOptions else { throw MCPError.invalidParams("Missing required 'pid' for AX press tool") }
-                let x = try getRequiredDouble(from: params.arguments, key: "x")
-                let y = try getRequiredDouble(from: params.arguments, key: "y")
-                let w = try getOptionalDouble(from: params.arguments, key: "width")
-                let h = try getOptionalDouble(from: params.arguments, key: "height")
-                let hitPoint: CGPoint = (w != nil && h != nil)
-                    ? CGPoint(x: x + w! / 2, y: y + h! / 2)
-                    : CGPoint(x: x, y: y)
-                if let runningApp = NSRunningApplication(processIdentifier: reqPid) {
-                    runningApp.activate(options: [])
-                    try? await Task.sleep(nanoseconds: 200_000_000)
-                }
-                lastClickPoint = hitPoint
-                primaryAction = .input(action: .axPress(point: hitPoint, pid: reqPid))
+                let point = try hitPoint(from: params.arguments)
+                await activateApp(pid: reqPid)
+                lastClickPoint = point
+                primaryAction = .input(action: .axPress(point: point, pid: reqPid))
                 options.pidForTraversal = reqPid
                 options.showDiff = true
                 hasDiff = true
 
             case setSelectedTool.name:
                 guard let reqPid = pidForOptions else { throw MCPError.invalidParams("Missing required 'pid' for set selected tool") }
-                let x = try getRequiredDouble(from: params.arguments, key: "x")
-                let y = try getRequiredDouble(from: params.arguments, key: "y")
-                let w = try getOptionalDouble(from: params.arguments, key: "width")
-                let h = try getOptionalDouble(from: params.arguments, key: "height")
+                let point = try hitPoint(from: params.arguments)
                 let selected = try getOptionalBool(from: params.arguments, key: "selected") ?? true
-                let hitPoint: CGPoint = (w != nil && h != nil)
-                    ? CGPoint(x: x + w! / 2, y: y + h! / 2)
-                    : CGPoint(x: x, y: y)
-                if let runningApp = NSRunningApplication(processIdentifier: reqPid) {
-                    runningApp.activate(options: [])
-                    try? await Task.sleep(nanoseconds: 200_000_000)
-                }
-                lastClickPoint = hitPoint
-                primaryAction = .input(action: .axSetSelected(point: hitPoint, selected: selected, pid: reqPid))
+                await activateApp(pid: reqPid)
+                lastClickPoint = point
+                primaryAction = .input(action: .axSetSelected(point: point, selected: selected, pid: reqPid))
                 options.pidForTraversal = reqPid
                 options.showDiff = true
                 hasDiff = true
