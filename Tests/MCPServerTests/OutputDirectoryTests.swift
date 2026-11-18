@@ -41,4 +41,22 @@ struct OutputDirectoryTests {
         let perms = try FileManager.default.attributesOfItem(atPath: dir)[.posixPermissions] as? Int
         #expect(perms == 0o700)
     }
+
+    @Test func test_prepareOutputDirectory_rejectsRegularFile() throws {
+        let parent = try makeTempDir()
+        defer { try? FileManager.default.removeItem(atPath: parent) }
+        let path = (parent as NSString).appendingPathComponent("macos-use")
+        FileManager.default.createFile(atPath: path, contents: Data())
+        #expect(throws: (any Error).self) { try prepareOutputDirectory(path) }
+    }
+
+    @Test func test_prepareOutputDirectory_rejectsSymlink() throws {
+        let parent = try makeTempDir()
+        defer { try? FileManager.default.removeItem(atPath: parent) }
+        let target = (parent as NSString).appendingPathComponent("elsewhere")
+        try FileManager.default.createDirectory(atPath: target, withIntermediateDirectories: false)
+        let path = (parent as NSString).appendingPathComponent("macos-use")
+        try FileManager.default.createSymbolicLink(atPath: path, withDestinationPath: target)
+        #expect(throws: (any Error).self) { try prepareOutputDirectory(path) }
+    }
 }

@@ -45,9 +45,9 @@ func getOptionalDouble(from args: [String: Value]?, key: String) throws -> Doubl
             fputs("log: getOptionalDouble: converting string \"\(stringValue)\" to double for key '\(key)'\n", stderr)
             return doubleValue
         }
-        throw MCPError.invalidParams("Invalid type for optional number argument: '\(key)', string \"\(stringValue)\" is not a valid number")
+        throw MCPError.invalidParams("Invalid type for number argument: '\(key)', string \"\(stringValue)\" is not a valid number")
     default:
-        throw MCPError.invalidParams("Invalid type for optional number argument: '\(key)', expected Int, Double, or numeric String, got \(value)")
+        throw MCPError.invalidParams("Invalid type for number argument: '\(key)', expected Int, Double, or numeric String, got \(value)")
     }
 }
 
@@ -61,7 +61,7 @@ func getOptionalInt(from args: [String: Value]?, key: String) throws -> Int? {
              return intValue
         } else {
             fputs("warning: getOptionalInt: received non-exact double \(doubleValue) for key '\(key)', expecting integer.\n", stderr)
-            throw MCPError.invalidParams("Invalid type for optional integer argument: '\(key)', received non-exact Double \(doubleValue)")
+            throw MCPError.invalidParams("Invalid type for integer argument: '\(key)', received non-exact Double \(doubleValue)")
         }
     }
     // Allow conversion from String (MCP clients may send numbers as strings)
@@ -70,7 +70,7 @@ func getOptionalInt(from args: [String: Value]?, key: String) throws -> Int? {
         return intValue
     }
     guard let intValue = value.intValue else {
-        throw MCPError.invalidParams("Invalid type for optional integer argument: '\(key)', expected Int, exact Double, or numeric String, got \(value)")
+        throw MCPError.invalidParams("Invalid type for integer argument: '\(key)', expected Int, exact Double, or numeric String, got \(value)")
     }
     return intValue
 }
@@ -79,7 +79,7 @@ func getOptionalBool(from args: [String: Value]?, key: String) throws -> Bool? {
      guard let value = args?[key] else { return nil } // Key not present
      if value.isNull { return nil } // Explicit null
      guard let boolValue = value.boolValue else {
-         throw MCPError.invalidParams("Invalid type for optional boolean argument: '\(key)', expected Bool, got \(value)")
+         throw MCPError.invalidParams("Invalid type for boolean argument: '\(key)', expected Bool, got \(value)")
      }
      return boolValue
 }
@@ -1079,18 +1079,19 @@ func buildFlatTextResponse(_ toolResponse: ToolResponse) -> String {
 /// Per-user temp dir (/var/folders/..., not shared /tmp) so other local users can't read screen contents.
 let responseOutputDir = (NSTemporaryDirectory() as NSString).appendingPathComponent("macos-use")
 
-/// Create the output dir as owner-only (0700). Refuses a pre-existing dir owned by someone else.
+/// Create the output dir as owner-only (0700). Refuses a file, a symlink, or a dir owned by someone else.
 func prepareOutputDirectory(_ path: String) throws {
     let fm = FileManager.default
-    if fm.fileExists(atPath: path) {
-        let owner = (try fm.attributesOfItem(atPath: path)[.ownerAccountID] as? NSNumber)?.uint32Value
-        guard owner == getuid() else {
-            throw MCPError.internalError("Output directory \(path) is not owned by the current user")
-        }
-        try fm.setAttributes([.posixPermissions: 0o700], ofItemAtPath: path)
-    } else {
-        try fm.createDirectory(atPath: path, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+    // Creation may lose a race to another process; the checks below run on whatever ends up there
+    try? fm.createDirectory(atPath: path, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
+    let attrs = try fm.attributesOfItem(atPath: path) // lstat: does not follow symlinks
+    guard attrs[.type] as? FileAttributeType == .typeDirectory else {
+        throw MCPError.internalError("Output path \(path) is not a directory")
     }
+    guard (attrs[.ownerAccountID] as? NSNumber)?.uint32Value == getuid() else {
+        throw MCPError.internalError("Output directory \(path) is not owned by the current user")
+    }
+    try fm.setAttributes([.posixPermissions: 0o700], ofItemAtPath: path)
 }
 
 /// Delete response .txt/.png files older than `age` seconds.
@@ -1259,15 +1260,17 @@ func scrollIntoViewIfNeeded(pid: pid_t, point: CGPoint) async -> CGPoint {
 
             // Cheap check first: the element we already hold (2 AX calls instead of a full tree walk)
             // Re-check text: lists that reuse rows may show a different item in the same element
-            if let el = targetElement, getAXElementText(el) == targetText, let frame = getAXElementFrame(el),
+            let heldFrame = targetElement.flatMap { el in getAXElementText(el) == targetText ? getAXElementFrame(el) : nil }
+            if let frame = heldFrame,
                windowBounds.insetBy(dx: 0, dy: 15).contains(CGPoint(x: frame.midX, y: frame.midY)) {
                 fputs("log: scrollIntoViewIfNeeded: \"\(targetText)\" in view at \(frame) after \(step) steps\n", stderr)
                 try? await Task.sleep(nanoseconds: 100_000_000)
                 return CGPoint(x: frame.midX, y: frame.midY)
             }
 
-            // Full tree search only every 5th step, in case the app recreated the element
-            if step % 5 == 0, let foundCenter = findElementByText(root: windowElement, text: targetText, viewport: windowBounds) {
+            // Full tree search every 5th step (the app may have recreated the element),
+            // or every step when the held element is gone or shows other text
+            if heldFrame == nil || step % 5 == 0, let foundCenter = findElementByText(root: windowElement, text: targetText, viewport: windowBounds) {
                 fputs("log: scrollIntoViewIfNeeded: found \"\(targetText)\" at \(foundCenter) after \(step) steps\n", stderr)
                 try? await Task.sleep(nanoseconds: 100_000_000)
                 return foundCenter
@@ -1796,7 +1799,7 @@ func setupAndStartServer() async throws -> Server {
                 default:
                     toolDesc = "Automating…"
                 }
-                InputGuard.shared.engage(message: "AI: \(toolDesc) — press Esc to cancel")
+                InputGuard.shared.engage(message: "AI: \(toolDesc)")
             }
 
             // Composed mode clears hasDiff, but app-switch detection still applies to every input action
@@ -2000,8 +2003,9 @@ struct MCPServer {
         let server: Server
         do {
             fputs("log: main: calling setupAndStartServer()...\n", stderr)
-            try? prepareOutputDirectory(responseOutputDir)
-            pruneResponseFiles(in: responseOutputDir, olderThan: 86_400)
+            if (try? prepareOutputDirectory(responseOutputDir)) != nil {
+                pruneResponseFiles(in: responseOutputDir, olderThan: 86_400)
+            }
             server = try await setupAndStartServer()
             fputs("log: main: setupAndStartServer() successful, server instance obtained.\n", stderr)
 

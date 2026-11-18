@@ -11,7 +11,7 @@ struct InputGuardCancelled: Error, LocalizedError {
 /// Press Esc (plain, no modifiers) to cancel and immediately release.
 ///
 /// Usage:
-///   InputGuard.shared.engage(message: "Clicking in Safari…")
+///   InputGuard.shared.engage(message: "Clicking in Safari…") // " — press Esc to cancel" is appended when the tap is active
 ///   // … perform automation …
 ///   InputGuard.shared.disengage()
 ///
@@ -51,11 +51,16 @@ final class InputGuard: @unchecked Sendable {
     // MARK: - Overlay
     private var overlayWindow: NSWindow?
 
+    /// Offer Esc only when the tap exists to catch it.
+    static func overlayMessage(_ base: String, tapActive: Bool) -> String {
+        tapActive ? "\(base) — press Esc to cancel" : base
+    }
+
     // MARK: - Engage / Disengage
 
     /// Start blocking user input and show the overlay banner.
     /// Blocks until the event tap is active and the overlay is shown.
-    func engage(message: String = "AI is controlling your computer — press Esc to cancel") {
+    func engage(message: String = "AI is controlling your computer") {
         lock.lock()
         guard !_engaged else { lock.unlock(); return }
         _engaged = true
@@ -69,18 +74,18 @@ final class InputGuard: @unchecked Sendable {
         // so the main run loop can still process event tap callbacks during automation.
         if Thread.isMainThread {
             createEventTap()
-            buildAndShowOverlay(message: message)
+            buildAndShowOverlay(message: Self.overlayMessage(message, tapActive: eventTap != nil))
         } else {
             DispatchQueue.main.sync {
                 self.createEventTap()
-                self.buildAndShowOverlay(message: message)
+                self.buildAndShowOverlay(message: Self.overlayMessage(message, tapActive: self.eventTap != nil))
             }
         }
 
         // Start watchdog timer
         startWatchdog()
 
-        fputs("log: InputGuard: engaged — tap active, overlay visible\n", stderr)
+        fputs("log: InputGuard: engaged — tap \(eventTap != nil ? "active" : "unavailable, input not blocked"), overlay visible\n", stderr)
     }
 
     /// Stop blocking user input and hide the overlay.

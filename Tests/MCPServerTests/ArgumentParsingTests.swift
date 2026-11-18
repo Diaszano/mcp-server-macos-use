@@ -25,4 +25,13 @@ struct ArgumentParsingTests {
     @Test func test_getRequiredInt_rejectsMissing() {
         #expect(throws: MCPError.self) { try getRequiredInt(from: [:], key: "pid") }
     }
+
+    @Test func test_requiredArgTypeError_doesNotSayOptional() {
+        do {
+            _ = try getRequiredDouble(from: ["x": true], key: "x")
+            Issue.record("expected an error")
+        } catch {
+            #expect(!"\(error)".contains("optional"))
+        }
+    }
 }
