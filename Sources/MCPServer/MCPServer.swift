@@ -734,6 +734,28 @@ func mergeComposedResults(primary: ActionResult, additional: [ActionResult], fin
     return combined
 }
 
+/// Elements whose text contains `search` (case-insensitive), with a frame and an optional role prefix,
+/// ordered so exact text matches come first, then on-screen ones.
+func rankElementMatches(_ elements: [EnrichedElementData], search: String, role: String?) -> [EnrichedElementData] {
+    let searchLower = search.lowercased()
+    let roleLower = role?.lowercased()
+    let matches = elements.filter { elem in
+        guard let text = elem.text, !text.isEmpty,
+              elem.x != nil, elem.y != nil,
+              let w = elem.width, let h = elem.height,
+              w > 0, h > 0 else { return false }
+        return text.lowercased().contains(searchLower)
+            && (roleLower == nil || elem.role.lowercased().hasPrefix(roleLower!))
+    }
+    func score(_ e: EnrichedElementData) -> Int {
+        (e.text?.lowercased() == searchLower ? 2 : 0) + (e.in_viewport == true ? 1 : 0)
+    }
+    // enumerated() keeps traversal order among equal scores (sort isn't guaranteed stable)
+    return matches.enumerated()
+        .sorted { (score($0.element), -$0.offset) > (score($1.element), -$1.offset) }
+        .map(\.element)
+}
+
 // --- Compact Summary Builder (file-based MCP responses) ---
 
 /// Build a concise text summary for the MCP response instead of returning the full JSON.
@@ -1659,16 +1681,7 @@ func setupAndStartServer() async throws -> Server {
                     let allBounds = getAllWindowBoundsFromTraversal(traversal)
                     let enriched = enrichResponseData(traversal, windowBounds: windowBounds, allWindowBounds: allBounds)
 
-                    let searchLower = elementSearch.lowercased()
-                    let matches = enriched.elements.filter { elem in
-                        guard let text = elem.text, !text.isEmpty,
-                              let _ = elem.x, let _ = elem.y,
-                              let w = elem.width, let h = elem.height,
-                              w > 0, h > 0 else { return false }
-                        let textMatch = text.lowercased().contains(searchLower)
-                        let roleMatch = roleFilter == nil || elem.role.lowercased().hasPrefix(roleFilter!.lowercased())
-                        return textMatch && roleMatch
-                    }
+                    let matches = rankElementMatches(enriched.elements, search: elementSearch, role: roleFilter)
 
                     guard let match = matches.first else {
                         let roleHint = roleFilter != nil ? " with role '\(roleFilter!)'" : ""
