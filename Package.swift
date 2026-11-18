@@ -19,12 +19,19 @@ let package = Package(
                 .product(name: "MCP", package: "swift-sdk"),
                 .product(name: "MacosUseSDK", package: "MacosUseSDK")
             ],
-            path: "Sources/MCPServer",
-            swiftSettings: [.unsafeFlags(["-parse-as-library"])]
+            path: "Sources/MCPServer"
         ),
         .executableTarget(
             name: "screenshot-helper",
             path: "Sources/ScreenshotHelper"
+        ),
+        .testTarget(
+            name: "MCPServerTests",
+            dependencies: [
+                "mcp-server-macos-use",
+                .product(name: "MacosUseSDK", package: "MacosUseSDK")
+            ],
+            path: "Tests/MCPServerTests"
         ),
     ]
 )
