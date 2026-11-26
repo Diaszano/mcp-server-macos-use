@@ -1,0 +1,35 @@
+#!/bin/sh
+# .githooks/pre-commit
+# Blocks commits on non-conventional branches and staged Swift files that fail format or lint checks.
+
+set -e
+
+TOPLEVEL="$(git rev-parse --show-toplevel)"
+BRANCH="$(git symbolic-ref --short -q HEAD || true)"
+
+# Detached HEAD (rebase, bisect) has no branch to check.
+if [ -n "$BRANCH" ]; then
+    sh "$TOPLEVEL/scripts/verify-branch.sh" "$BRANCH"
+fi
+
+FILES="$(git diff --cached --name-only --diff-filter=ACMR -- '*.swift')"
+[ -z "$FILES" ] && exit 0
+
+# shellcheck disable=SC2086  # FILES is a newline-separated path list without spaces
+xcrun --toolchain com.apple.dt.toolchain.XcodeDefault swift format lint \
+    --configuration "$TOPLEVEL/.swift-format" --strict --parallel $FILES || {
+    echo "❌ swift-format found issues. Run 'make fmt', review, and stage the changes." >&2
+    exit 1
+}
+
+if [ -z "${DEVELOPER_DIR:-}" ] && [ -d /Applications/Xcode.app/Contents/Developer ]; then
+    # swiftlint needs SourceKit from Xcode, not from the CommandLineTools.
+    export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
+fi
+
+if command -v swiftlint >/dev/null 2>&1; then
+    # shellcheck disable=SC2086
+    swiftlint lint --strict --quiet --config "$TOPLEVEL/.swiftlint.yml" $FILES
+else
+    echo "⚠️  swiftlint not installed (brew install swiftlint); skipping lint." >&2
+fi
