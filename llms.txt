@@ -112,7 +112,7 @@ The server uses three macOS system APIs:
 - **Cross-app handoff:** If an action causes a different app to become frontmost (e.g. clicking a link opens a browser), the server detects this and traverses the new app automatically.
 - **InputGuard:** During automation, keyboard and mouse input from the user is blocked to prevent interference. A floating overlay shows what the server is doing. Pressing Escape cancels the current action immediately. A 30-second watchdog prevents permanent lockout.
 - **Cursor restoration:** The mouse cursor position is saved before each action and restored afterward, so the user's pointer does not jump around.
-- **Response files:** Full traversal data is written to `/tmp/macos-use/` as text files to keep MCP responses compact. Each line follows the format: `[AXButton (button)] "Open" x:680 y:520 w:80 h:30 visible`
+- **Response files:** Full traversal data is written to a private per-user directory (`$TMPDIR/macos-use/`) as text files to keep MCP responses compact. Each line follows the format: `[AXButton (button)] "Open" x:680 y:520 w:80 h:30 visible`
 
 ## Installation
 

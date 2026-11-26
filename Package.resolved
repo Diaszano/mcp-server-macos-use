@@ -14,7 +14,6 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/mediar-ai/MacosUseSDK.git",
       "state" : {
-        "branch" : "main",
         "revision" : "a2d7866355bca07faf476c5d180c8664b1992f8c"
       }
     },

@@ -5,20 +5,6 @@ import ApplicationServices // For AXUIElement APIs (scroll-into-view, window bou
 import AppKit // For NSEvent.mouseLocation (cursor position save/restore)
 import MacosUseSDK // <-- Import the SDK
 
-// --- Helper to serialize Swift structs to JSON String ---
-func serializeToJsonString<T: Encodable>(_ value: T) -> String? {
-    let encoder = JSONEncoder()
-    // Use pretty printing for easier debugging of the output if needed
-    encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
-    do {
-        let jsonData = try encoder.encode(value)
-        return String(data: jsonData, encoding: .utf8)
-    } catch {
-        fputs("error: serializeToJsonString: failed to encode value to JSON: \(error)\n", stderr)
-        return nil
-    }
-}
-
 // --- Function to get arguments from MCP Value ---
 // Helper to extract typed values safely
 func getRequiredString(from args: [String: Value]?, key: String) throws -> String {
@@ -29,50 +15,17 @@ func getRequiredString(from args: [String: Value]?, key: String) throws -> Strin
 }
 
 func getRequiredDouble(from args: [String: Value]?, key: String) throws -> Double {
-    guard let value = args?[key] else {
+    guard let value = try getOptionalDouble(from: args, key: key) else {
         throw MCPError.invalidParams("Missing required number argument: '\(key)'")
     }
-    switch value {
-    case .int(let intValue):
-        fputs("log: getRequiredDouble: converting int \(intValue) to double for key '\(key)'\n", stderr)
-        return Double(intValue)
-    case .double(let doubleValue):
-        return doubleValue
-    case .string(let stringValue):
-        if let doubleValue = Double(stringValue) {
-            fputs("log: getRequiredDouble: converting string \"\(stringValue)\" to double for key '\(key)'\n", stderr)
-            return doubleValue
-        }
-        throw MCPError.invalidParams("Invalid type for required number argument: '\(key)', string \"\(stringValue)\" is not a valid number")
-    default:
-        throw MCPError.invalidParams("Invalid type for required number argument: '\(key)', expected Int, Double, or numeric String, got \(value)")
-    }
+    return value
 }
 
 func getRequiredInt(from args: [String: Value]?, key: String) throws -> Int {
-    guard let value = args?[key] else {
+    guard let value = try getOptionalInt(from: args, key: key) else {
         throw MCPError.invalidParams("Missing required integer argument: '\(key)'")
     }
-    // Allow conversion from Double if it's an exact integer
-    if let doubleValue = value.doubleValue {
-        if let intValue = Int(exactly: doubleValue) {
-             fputs("log: getRequiredInt: converting exact double \(doubleValue) to int for key '\(key)'\n", stderr)
-             return intValue
-        } else {
-            fputs("warning: getRequiredInt: received non-exact double \(doubleValue) for key '\(key)', expecting integer.\n", stderr)
-            throw MCPError.invalidParams("Invalid type for required integer argument: '\(key)', received non-exact Double \(doubleValue)")
-        }
-    }
-    // Allow conversion from String (MCP clients may send numbers as strings)
-    if let stringValue = value.stringValue, let intValue = Int(stringValue) {
-        fputs("log: getRequiredInt: converting string \"\(stringValue)\" to int for key '\(key)'\n", stderr)
-        return intValue
-    }
-    // Otherwise, require it to be an Int directly
-    guard let intValue = value.intValue else {
-        throw MCPError.invalidParams("Invalid type for required integer argument: '\(key)', expected Int, exact Double, or numeric String, got \(value)")
-    }
-    return intValue
+    return value
 }
 
 
@@ -92,9 +45,9 @@ func getOptionalDouble(from args: [String: Value]?, key: String) throws -> Doubl
             fputs("log: getOptionalDouble: converting string \"\(stringValue)\" to double for key '\(key)'\n", stderr)
             return doubleValue
         }
-        throw MCPError.invalidParams("Invalid type for optional number argument: '\(key)', string \"\(stringValue)\" is not a valid number")
+        throw MCPError.invalidParams("Invalid type for number argument: '\(key)', string \"\(stringValue)\" is not a valid number")
     default:
-        throw MCPError.invalidParams("Invalid type for optional number argument: '\(key)', expected Int, Double, or numeric String, got \(value)")
+        throw MCPError.invalidParams("Invalid type for number argument: '\(key)', expected Int, Double, or numeric String, got \(value)")
     }
 }
 
@@ -108,7 +61,7 @@ func getOptionalInt(from args: [String: Value]?, key: String) throws -> Int? {
              return intValue
         } else {
             fputs("warning: getOptionalInt: received non-exact double \(doubleValue) for key '\(key)', expecting integer.\n", stderr)
-            throw MCPError.invalidParams("Invalid type for optional integer argument: '\(key)', received non-exact Double \(doubleValue)")
+            throw MCPError.invalidParams("Invalid type for integer argument: '\(key)', received non-exact Double \(doubleValue)")
         }
     }
     // Allow conversion from String (MCP clients may send numbers as strings)
@@ -117,7 +70,7 @@ func getOptionalInt(from args: [String: Value]?, key: String) throws -> Int? {
         return intValue
     }
     guard let intValue = value.intValue else {
-        throw MCPError.invalidParams("Invalid type for optional integer argument: '\(key)', expected Int, exact Double, or numeric String, got \(value)")
+        throw MCPError.invalidParams("Invalid type for integer argument: '\(key)', expected Int, exact Double, or numeric String, got \(value)")
     }
     return intValue
 }
@@ -126,9 +79,34 @@ func getOptionalBool(from args: [String: Value]?, key: String) throws -> Bool? {
      guard let value = args?[key] else { return nil } // Key not present
      if value.isNull { return nil } // Explicit null
      guard let boolValue = value.boolValue else {
-         throw MCPError.invalidParams("Invalid type for optional boolean argument: '\(key)', expected Bool, got \(value)")
+         throw MCPError.invalidParams("Invalid type for boolean argument: '\(key)', expected Bool, got \(value)")
      }
      return boolValue
+}
+
+/// Click point from required x/y; centered on the element when width and height are given.
+func hitPoint(from args: [String: Value]?) throws -> CGPoint {
+    let x = try getRequiredDouble(from: args, key: "x")
+    let y = try getRequiredDouble(from: args, key: "y")
+    if let w = try getOptionalDouble(from: args, key: "width"),
+       let h = try getOptionalDouble(from: args, key: "height") {
+        return CGPoint(x: x + w / 2, y: y + h / 2)
+    }
+    return CGPoint(x: x, y: y)
+}
+
+/// x/y for summary text; missing or invalid values read as 0.
+func optionalPoint(from args: [String: Value]?) -> (x: Int, y: Int) {
+    let x = (try? getOptionalDouble(from: args, key: "x")) ?? nil
+    let y = (try? getOptionalDouble(from: args, key: "y")) ?? nil
+    return (Int(x ?? 0), Int(y ?? 0))
+}
+
+/// Bring the target app to the front so input lands in it.
+func activateApp(pid: pid_t) async {
+    guard let runningApp = NSRunningApplication(processIdentifier: pid) else { return }
+    runningApp.activate(options: [])
+    try? await Task.sleep(nanoseconds: 200_000_000) // 200ms for activation
 }
 
 // --- NEW Helper to parse modifier flags ---
@@ -724,6 +702,39 @@ func buildToolResponse(_ result: ActionResult, hasDiff: Bool) -> ToolResponse {
     return response
 }
 
+/// Combine composed-mode results: before-state from the primary action, after-state from the
+/// final traversal, and the first error from the primary or any chained action.
+func mergeComposedResults(primary: ActionResult, additional: [ActionResult], final: ActionResult) -> ActionResult {
+    var combined = primary
+    combined.traversalAfter = final.traversalAfter
+    combined.traversalAfterError = final.traversalAfterError
+    combined.primaryActionError = primary.primaryActionError ?? additional.lazy.compactMap(\.primaryActionError).first
+    return combined
+}
+
+/// Elements whose text contains `search` (case-insensitive), with a frame and an optional role prefix,
+/// ordered on-screen first, then exact text matches.
+func rankElementMatches(_ elements: [EnrichedElementData], search: String, role: String?) -> [EnrichedElementData] {
+    let searchLower = search.lowercased()
+    let roleLower = role?.lowercased()
+    let matches = elements.filter { elem in
+        guard let text = elem.text, !text.isEmpty,
+              elem.x != nil, elem.y != nil,
+              let w = elem.width, let h = elem.height,
+              w > 0, h > 0 else { return false }
+        return text.lowercased().contains(searchLower)
+            && (roleLower == nil || elem.role.lowercased().hasPrefix(roleLower!))
+    }
+    func score(_ e: EnrichedElementData) -> Int {
+        // on-screen outranks exact text: a hidden exact match must not beat a visible partial one
+        (e.in_viewport == true ? 2 : 0) + (e.text?.lowercased() == searchLower ? 1 : 0)
+    }
+    // enumerated() keeps traversal order among equal scores (sort isn't guaranteed stable)
+    return matches.enumerated()
+        .sorted { (score($0.element), -$0.offset) > (score($1.element), -$1.offset) }
+        .map(\.element)
+}
+
 // --- Compact Summary Builder (file-based MCP responses) ---
 
 /// Build a concise text summary for the MCP response instead of returning the full JSON.
@@ -794,9 +805,8 @@ func buildCompactSummary(toolName: String, params: CallTool.Parameters, toolResp
             let roleDesc = roleFilter != nil ? " [\(roleFilter!)]" : ""
             summaryLine = "\(clickType) element '\(elemSearch)'\(roleDesc). \(diffSummary)"
         } else {
-            let x = params.arguments?["x"]?.doubleValue ?? params.arguments?["x"]?.intValue.map(Double.init) ?? 0
-            let y = params.arguments?["y"]?.doubleValue ?? params.arguments?["y"]?.intValue.map(Double.init) ?? 0
-            summaryLine = "\(clickType) at (\(Int(x)),\(Int(y))). \(diffSummary)"
+            let (x, y) = optionalPoint(from: params.arguments)
+            summaryLine = "\(clickType) at (\(x),\(y)). \(diffSummary)"
         }
 
     case "macos-use_type_and_traverse":
@@ -813,11 +823,10 @@ func buildCompactSummary(toolName: String, params: CallTool.Parameters, toolResp
         summaryLine = "Pressed \(keyDesc). \(diffSummary)"
 
     case "macos-use_scroll_and_traverse":
-        let x = params.arguments?["x"]?.doubleValue ?? params.arguments?["x"]?.intValue.map(Double.init) ?? 0
-        let y = params.arguments?["y"]?.doubleValue ?? params.arguments?["y"]?.intValue.map(Double.init) ?? 0
+        let (x, y) = optionalPoint(from: params.arguments)
         let deltaY = params.arguments?["deltaY"]?.intValue ?? 0
         let diffSummary = buildDiffSummary(toolResponse.diff)
-        summaryLine = "Scrolled deltaY=\(deltaY) at (\(Int(x)),\(Int(y))). \(diffSummary)"
+        summaryLine = "Scrolled deltaY=\(deltaY) at (\(x),\(y)). \(diffSummary)"
 
     case "macos-use_refresh_traversal":
         if let traversal = toolResponse.traversal {
@@ -829,25 +838,22 @@ func buildCompactSummary(toolName: String, params: CallTool.Parameters, toolResp
         }
 
     case "macos-use_set_value_and_traverse":
-        let x = params.arguments?["x"]?.doubleValue ?? params.arguments?["x"]?.intValue.map(Double.init) ?? 0
-        let y = params.arguments?["y"]?.doubleValue ?? params.arguments?["y"]?.intValue.map(Double.init) ?? 0
+        let (x, y) = optionalPoint(from: params.arguments)
         let value = params.arguments?["value"]?.stringValue ?? ""
         let truncatedValue = value.count > 40 ? String(value.prefix(40)) + "..." : value
         let diffSummary = buildDiffSummary(toolResponse.diff)
-        summaryLine = "AX set value '\(truncatedValue)' at (\(Int(x)),\(Int(y))). \(diffSummary)"
+        summaryLine = "AX set value '\(truncatedValue)' at (\(x),\(y)). \(diffSummary)"
 
     case "macos-use_press_ax_and_traverse":
-        let x = params.arguments?["x"]?.doubleValue ?? params.arguments?["x"]?.intValue.map(Double.init) ?? 0
-        let y = params.arguments?["y"]?.doubleValue ?? params.arguments?["y"]?.intValue.map(Double.init) ?? 0
+        let (x, y) = optionalPoint(from: params.arguments)
         let diffSummary = buildDiffSummary(toolResponse.diff)
-        summaryLine = "AX pressed element at (\(Int(x)),\(Int(y))). \(diffSummary)"
+        summaryLine = "AX pressed element at (\(x),\(y)). \(diffSummary)"
 
     case "macos-use_set_selected_and_traverse":
-        let x = params.arguments?["x"]?.doubleValue ?? params.arguments?["x"]?.intValue.map(Double.init) ?? 0
-        let y = params.arguments?["y"]?.doubleValue ?? params.arguments?["y"]?.intValue.map(Double.init) ?? 0
+        let (x, y) = optionalPoint(from: params.arguments)
         let sel = params.arguments?["selected"]?.boolValue ?? true
         let diffSummary = buildDiffSummary(toolResponse.diff)
-        summaryLine = "AX set selected=\(sel) at (\(Int(x)),\(Int(y))). \(diffSummary)"
+        summaryLine = "AX set selected=\(sel) at (\(x),\(y)). \(diffSummary)"
 
     default:
         summaryLine = "Tool \(toolName) completed."
@@ -1068,6 +1074,39 @@ func buildFlatTextResponse(_ toolResponse: ToolResponse) -> String {
     return lines.joined(separator: "\n")
 }
 
+// --- Response Output Directory ---
+
+/// Per-user temp dir (/var/folders/..., not shared /tmp) so other local users can't read screen contents.
+let responseOutputDir = (NSTemporaryDirectory() as NSString).appendingPathComponent("macos-use")
+
+/// Create the output dir as owner-only (0700). Refuses a file, a symlink, or a dir owned by someone else.
+func prepareOutputDirectory(_ path: String) throws {
+    let fm = FileManager.default
+    // Creation may lose a race to another process; the checks below run on whatever ends up there
+    try? fm.createDirectory(atPath: path, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
+    let attrs = try fm.attributesOfItem(atPath: path) // lstat: does not follow symlinks
+    guard attrs[.type] as? FileAttributeType == .typeDirectory else {
+        throw MCPError.internalError("Output path \(path) is not a directory")
+    }
+    guard (attrs[.ownerAccountID] as? NSNumber)?.uint32Value == getuid() else {
+        throw MCPError.internalError("Output directory \(path) is not owned by the current user")
+    }
+    try fm.setAttributes([.posixPermissions: 0o700], ofItemAtPath: path)
+}
+
+/// Delete response .txt/.png files older than `age` seconds.
+func pruneResponseFiles(in dir: String, olderThan age: TimeInterval, now: Date = Date()) {
+    let fm = FileManager.default
+    guard let names = try? fm.contentsOfDirectory(atPath: dir) else { return }
+    let cutoff = now.addingTimeInterval(-age)
+    for name in names where name.hasSuffix(".txt") || name.hasSuffix(".png") {
+        let path = (dir as NSString).appendingPathComponent(name)
+        if let modified = try? fm.attributesOfItem(atPath: path)[.modificationDate] as? Date, modified < cutoff {
+            try? fm.removeItem(atPath: path)
+        }
+    }
+}
+
 // --- Direct AX Element Interaction ---
 
 // --- Auto-Scroll via Scroll Wheel Events ---
@@ -1219,14 +1258,19 @@ func scrollIntoViewIfNeeded(pid: pid_t, point: CGPoint) async -> CGPoint {
             scrollEvent.post(tap: .cghidEventTap)
             try? await Task.sleep(nanoseconds: 100_000_000)
 
-            // Debug: check where the target element currently is
-            if step % 5 == 1 || step <= 3 {
-                if let el = targetElement, let frame = getAXElementFrame(el) {
-                    fputs("log: scrollIntoViewIfNeeded: step \(step): element frame=\(frame)\n", stderr)
-                }
+            // Cheap check first: the element we already hold (2 AX calls instead of a full tree walk)
+            // Re-check text: lists that reuse rows may show a different item in the same element
+            let heldFrame = targetElement.flatMap { el in getAXElementText(el) == targetText ? getAXElementFrame(el) : nil }
+            if let frame = heldFrame,
+               windowBounds.insetBy(dx: 0, dy: 15).contains(CGPoint(x: frame.midX, y: frame.midY)) {
+                fputs("log: scrollIntoViewIfNeeded: \"\(targetText)\" in view at \(frame) after \(step) steps\n", stderr)
+                try? await Task.sleep(nanoseconds: 100_000_000)
+                return CGPoint(x: frame.midX, y: frame.midY)
             }
 
-            if let foundCenter = findElementByText(root: windowElement, text: targetText, viewport: windowBounds) {
+            // Full tree search every 5th step (the app may have recreated the element),
+            // or every step when the held element is gone or shows other text
+            if heldFrame == nil || step % 5 == 0, let foundCenter = findElementByText(root: windowElement, text: targetText, viewport: windowBounds) {
                 fputs("log: scrollIntoViewIfNeeded: found \"\(targetText)\" at \(foundCenter) after \(step) steps\n", stderr)
                 try? await Task.sleep(nanoseconds: 100_000_000)
                 return foundCenter
@@ -1511,30 +1555,6 @@ func setupAndStartServer() async throws -> Server {
     )
     fputs("log: setupAndStartServer: server instance created (\(server.name)) version \(server.version).\n", stderr)
 
-    // --- Dummy Handlers (ReadResource, ListResources, ListPrompts) ---
-    // (Keep these as they are part of the MCP spec, even if unused for now)
-    await server.withMethodHandler(ReadResource.self) { params in
-        let uri = params.uri
-        fputs("log: handler(ReadResource): received request for uri: \(uri) (dummy handler)\n", stderr)
-        // In a real scenario, you might fetch resource content here
-        return .init(contents: [.text("dummy content for \(uri)", uri: uri)])
-    }
-    fputs("log: setupAndStartServer: registered ReadResource handler (dummy).\n", stderr)
-
-    await server.withMethodHandler(ListResources.self) { _ in
-        fputs("log: handler(ListResources): received request (dummy handler).\n", stderr)
-        // In a real scenario, list available resources
-        return ListResources.Result(resources: [])
-    }
-    fputs("log: setupAndStartServer: registered ListResources handler (dummy).\n", stderr)
-
-    await server.withMethodHandler(ListPrompts.self) { _ in
-        fputs("log: handler(ListPrompts): received request (dummy handler).\n", stderr)
-        // In a real scenario, list available prompts
-        return ListPrompts.Result(prompts: [])
-    }
-    fputs("log: setupAndStartServer: registered ListPrompts handler (dummy).\n", stderr)
-
     // --- ListTools Handler ---
     await server.withMethodHandler(ListTools.self) { _ in
         fputs("log: handler(ListTools): received request.\n", stderr)
@@ -1547,7 +1567,7 @@ func setupAndStartServer() async throws -> Server {
     // --- UPDATED CallTool Handler (Direct SDK Call) ---
     await server.withMethodHandler(CallTool.self) { params in
         fputs("log: handler(CallTool): received request for tool: \(params.name).\n", stderr)
-        fputs("log: handler(CallTool): arguments received (raw MCP): \(params.arguments?.debugDescription ?? "nil")\n", stderr)
+        fputs("log: handler(CallTool): argument keys: \(params.arguments?.keys.sorted() ?? [])\n", stderr)
 
         // Declared outside `do` so they're accessible in `catch InputGuardCancelled`
         var savedFrontmostApp: NSRunningApplication? = nil
@@ -1617,16 +1637,7 @@ func setupAndStartServer() async throws -> Server {
                     let allBounds = getAllWindowBoundsFromTraversal(traversal)
                     let enriched = enrichResponseData(traversal, windowBounds: windowBounds, allWindowBounds: allBounds)
 
-                    let searchLower = elementSearch.lowercased()
-                    let matches = enriched.elements.filter { elem in
-                        guard let text = elem.text, !text.isEmpty,
-                              let _ = elem.x, let _ = elem.y,
-                              let w = elem.width, let h = elem.height,
-                              w > 0, h > 0 else { return false }
-                        let textMatch = text.lowercased().contains(searchLower)
-                        let roleMatch = roleFilter == nil || elem.role.lowercased().hasPrefix(roleFilter!.lowercased())
-                        return textMatch && roleMatch
-                    }
+                    let matches = rankElementMatches(enriched.elements, search: elementSearch, role: roleFilter)
 
                     guard let match = matches.first else {
                         let roleHint = roleFilter != nil ? " with role '\(roleFilter!)'" : ""
@@ -1642,22 +1653,12 @@ func setupAndStartServer() async throws -> Server {
                           let y = try getOptionalDouble(from: params.arguments, key: "y") else {
                         throw MCPError.invalidParams("Either 'element' or both 'x' and 'y' must be provided for click tool")
                     }
-                    let w = try getOptionalDouble(from: params.arguments, key: "width")
-                    let h = try getOptionalDouble(from: params.arguments, key: "height")
-                    if let w = w, let h = h {
-                        rawPoint = CGPoint(x: x + w / 2, y: y + h / 2)
-                        fputs("log: click_and_traverse: centering (\(x),\(y)) + size(\(w)×\(h)) → \(rawPoint)\n", stderr)
-                    } else {
-                        rawPoint = CGPoint(x: x, y: y)
-                    }
+                    rawPoint = try hitPoint(from: params.arguments)
+                    fputs("log: click_and_traverse: (\(x),\(y)) → click point \(rawPoint)\n", stderr)
                 }
 
                 // Activate the target app before clicking so the click registers correctly
-                if let runningApp = NSRunningApplication(processIdentifier: reqPid) {
-                    runningApp.activate(options: [])
-                    fputs("log: click_and_traverse: activated app pid=\(reqPid)\n", stderr)
-                    try? await Task.sleep(nanoseconds: 200_000_000) // 200ms for activation
-                }
+                await activateApp(pid: reqPid)
                 // Auto-scroll element into view if it's outside the visible window area
                 let adjustedPoint = await scrollIntoViewIfNeeded(pid: reqPid, point: rawPoint)
                 lastClickPoint = adjustedPoint
@@ -1714,12 +1715,7 @@ func setupAndStartServer() async throws -> Server {
                 let deltaY = try getRequiredInt(from: params.arguments, key: "deltaY")
                 let deltaX = try getOptionalInt(from: params.arguments, key: "deltaX") ?? 0
                 let scrollPoint = CGPoint(x: x, y: y)
-                // Activate the target app before scrolling so the event registers correctly
-                if let runningApp = NSRunningApplication(processIdentifier: reqPid) {
-                    runningApp.activate(options: [])
-                    fputs("log: scroll_and_traverse: activated app pid=\(reqPid)\n", stderr)
-                    try? await Task.sleep(nanoseconds: 200_000_000) // 200ms for activation
-                }
+                await activateApp(pid: reqPid)
                 primaryAction = .input(action: .scroll(point: scrollPoint, deltaY: Int32(deltaY), deltaX: Int32(deltaX)))
                 options.pidForTraversal = reqPid
                 options.showDiff = true
@@ -1727,59 +1723,32 @@ func setupAndStartServer() async throws -> Server {
 
             case setValueTool.name:
                 guard let reqPid = pidForOptions else { throw MCPError.invalidParams("Missing required 'pid' for set value tool") }
-                let x = try getRequiredDouble(from: params.arguments, key: "x")
-                let y = try getRequiredDouble(from: params.arguments, key: "y")
+                let point = try hitPoint(from: params.arguments)
                 let value = try getRequiredString(from: params.arguments, key: "value")
-                let w = try getOptionalDouble(from: params.arguments, key: "width")
-                let h = try getOptionalDouble(from: params.arguments, key: "height")
-                let hitPoint: CGPoint = (w != nil && h != nil)
-                    ? CGPoint(x: x + w! / 2, y: y + h! / 2)
-                    : CGPoint(x: x, y: y)
-                if let runningApp = NSRunningApplication(processIdentifier: reqPid) {
-                    runningApp.activate(options: [])
-                    try? await Task.sleep(nanoseconds: 200_000_000)
-                }
-                lastClickPoint = hitPoint
-                primaryAction = .input(action: .axSetValue(point: hitPoint, value: value, pid: reqPid))
+                await activateApp(pid: reqPid)
+                lastClickPoint = point
+                primaryAction = .input(action: .axSetValue(point: point, value: value, pid: reqPid))
                 options.pidForTraversal = reqPid
                 options.showDiff = true
                 hasDiff = true
 
             case pressAXTool.name:
                 guard let reqPid = pidForOptions else { throw MCPError.invalidParams("Missing required 'pid' for AX press tool") }
-                let x = try getRequiredDouble(from: params.arguments, key: "x")
-                let y = try getRequiredDouble(from: params.arguments, key: "y")
-                let w = try getOptionalDouble(from: params.arguments, key: "width")
-                let h = try getOptionalDouble(from: params.arguments, key: "height")
-                let hitPoint: CGPoint = (w != nil && h != nil)
-                    ? CGPoint(x: x + w! / 2, y: y + h! / 2)
-                    : CGPoint(x: x, y: y)
-                if let runningApp = NSRunningApplication(processIdentifier: reqPid) {
-                    runningApp.activate(options: [])
-                    try? await Task.sleep(nanoseconds: 200_000_000)
-                }
-                lastClickPoint = hitPoint
-                primaryAction = .input(action: .axPress(point: hitPoint, pid: reqPid))
+                let point = try hitPoint(from: params.arguments)
+                await activateApp(pid: reqPid)
+                lastClickPoint = point
+                primaryAction = .input(action: .axPress(point: point, pid: reqPid))
                 options.pidForTraversal = reqPid
                 options.showDiff = true
                 hasDiff = true
 
             case setSelectedTool.name:
                 guard let reqPid = pidForOptions else { throw MCPError.invalidParams("Missing required 'pid' for set selected tool") }
-                let x = try getRequiredDouble(from: params.arguments, key: "x")
-                let y = try getRequiredDouble(from: params.arguments, key: "y")
-                let w = try getOptionalDouble(from: params.arguments, key: "width")
-                let h = try getOptionalDouble(from: params.arguments, key: "height")
+                let point = try hitPoint(from: params.arguments)
                 let selected = try getOptionalBool(from: params.arguments, key: "selected") ?? true
-                let hitPoint: CGPoint = (w != nil && h != nil)
-                    ? CGPoint(x: x + w! / 2, y: y + h! / 2)
-                    : CGPoint(x: x, y: y)
-                if let runningApp = NSRunningApplication(processIdentifier: reqPid) {
-                    runningApp.activate(options: [])
-                    try? await Task.sleep(nanoseconds: 200_000_000)
-                }
-                lastClickPoint = hitPoint
-                primaryAction = .input(action: .axSetSelected(point: hitPoint, selected: selected, pid: reqPid))
+                await activateApp(pid: reqPid)
+                lastClickPoint = point
+                primaryAction = .input(action: .axSetSelected(point: point, selected: selected, pid: reqPid))
                 options.pidForTraversal = reqPid
                 options.showDiff = true
                 hasDiff = true
@@ -1793,8 +1762,6 @@ func setupAndStartServer() async throws -> Server {
                 fputs("error: handler(CallTool): received request for unknown or unsupported tool: \(params.name)\n", stderr)
                 throw MCPError.methodNotFound(params.name)
             }
-
-            fputs("log: handler(CallTool): constructed PrimaryAction: \(primaryAction)\n", stderr)
 
             // --- Determine if this tool is disruptive (takes over input/focus) ---
             let isDisruptive = params.name != refreshTool.name
@@ -1832,8 +1799,11 @@ func setupAndStartServer() async throws -> Server {
                 default:
                     toolDesc = "Automating…"
                 }
-                InputGuard.shared.engage(message: "AI: \(toolDesc) — press Esc to cancel")
+                InputGuard.shared.engage(message: "AI: \(toolDesc)")
             }
+
+            // Composed mode clears hasDiff, but app-switch detection still applies to every input action
+            let isInputAction = hasDiff
 
             // --- Execute the Action using MacosUseSDK ---
             let actionResult: ActionResult
@@ -1862,13 +1832,14 @@ func setupAndStartServer() async throws -> Server {
                 // Step 2: Additional actions (type, press) — no traversal, just input
                 var minOpts = ActionOptions(showAnimation: false)
                 minOpts.pidForTraversal = options.pidForTraversal
+                var additionalResults: [ActionResult] = []
                 for additionalAction in additionalActions {
                     try? await Task.sleep(nanoseconds: 100_000_000) // 100ms between actions
                     if isDisruptive { try InputGuard.shared.throwIfCancelled() }
-                    let _ = await Task { @MainActor in
+                    additionalResults.append(await Task { @MainActor in
                         return await performAction(action: .input(action: additionalAction), optionsInput: minOpts)
-                    }.value
-                    fputs("log: handler(CallTool): composed — additional action \(additionalAction) done.\n", stderr)
+                    }.value)
+                    fputs("log: handler(CallTool): composed — additional action done.\n", stderr)
                 }
                 if isDisruptive { try InputGuard.shared.throwIfCancelled() }
 
@@ -1880,13 +1851,9 @@ func setupAndStartServer() async throws -> Server {
                 }.value
                 fputs("log: handler(CallTool): composed — final traversal done.\n", stderr)
 
-                // Combine: before from primary result, after from final traversal
-                var combined = primaryResult
-                combined.traversalAfter = finalResult.traversalAfter
-                combined.traversalAfterError = finalResult.traversalAfterError
                 // No diff in composed mode (before/after still present for context)
                 hasDiff = false
-                actionResult = combined
+                actionResult = mergeComposedResults(primary: primaryResult, additional: additionalResults, final: finalResult)
             }
 
             // --- Disengage input guard and check for late cancellation ---
@@ -1901,6 +1868,9 @@ func setupAndStartServer() async throws -> Server {
                     throw InputGuardCancelled()
                 }
             }
+
+            // Capture before restoring focus, otherwise the restored app looks like an app switch
+            let frontmostAfterAction = NSWorkspace.shared.frontmostApplication
 
             // --- Restore cursor position ---
             if let pos = savedCursorPos,
@@ -1924,10 +1894,9 @@ func setupAndStartServer() async throws -> Server {
 
             // --- Detect cross-app handoff ---
             // After diff-based actions, check if a different app became frontmost
-            if hasDiff, let originalPid = options.pidForTraversal {
-                let frontmostPid = NSWorkspace.shared.frontmostApplication?.processIdentifier
-                if let newPid = frontmostPid, newPid != originalPid {
-                    let frontmostName = NSWorkspace.shared.frontmostApplication?.localizedName ?? "Unknown"
+            if isInputAction, let originalPid = options.pidForTraversal {
+                if let newPid = frontmostAfterAction?.processIdentifier, newPid != originalPid {
+                    let frontmostName = frontmostAfterAction?.localizedName ?? "Unknown"
                     fputs("log: handler(CallTool): app switch detected! Original PID \(originalPid) -> new frontmost PID \(newPid) (\(frontmostName))\n", stderr)
                     toolResponse.appSwitchPid = newPid
                     toolResponse.appSwitchAppName = frontmostName
@@ -1958,15 +1927,15 @@ func setupAndStartServer() async throws -> Server {
             }
 
             // --- Write flat text to file, return compact summary ---
-            let outputDir = "/tmp/macos-use"
-            try? FileManager.default.createDirectory(atPath: outputDir, withIntermediateDirectories: true)
+            let outputDir = responseOutputDir
+            try prepareOutputDirectory(outputDir)
 
             let timestamp = Int(Date().timeIntervalSince1970 * 1000) // ms precision to avoid collisions
             let safeName = params.name.replacingOccurrences(of: "macos-use_", with: "")
             let filename = "\(timestamp)_\(safeName).txt"
             let filepath = "\(outputDir)/\(filename)"
             try? resultTextString.write(toFile: filepath, atomically: true, encoding: .utf8)
-            fputs("log: handler(CallTool): wrote full response to \(filepath) (\(resultTextString.count) bytes)\n", stderr)
+            fputs("log: handler(CallTool): wrote full response to \(filepath) (\(resultTextString.utf8.count) bytes)\n", stderr)
 
             // --- Capture window screenshot ---
             var screenshotPath: String? = nil
@@ -1978,7 +1947,7 @@ func setupAndStartServer() async throws -> Server {
                 screenshotPath = captureWindowScreenshot(pid: pid, outputPath: screenshotFilepath, clickPoint: lastClickPoint, traversalWindowBounds: toolResponse.windowBounds)
             }
 
-            let summary = buildCompactSummary(toolName: params.name, params: params, toolResponse: toolResponse, filepath: filepath, fileSize: resultTextString.count, screenshotPath: screenshotPath)
+            let summary = buildCompactSummary(toolName: params.name, params: params, toolResponse: toolResponse, filepath: filepath, fileSize: resultTextString.utf8.count, screenshotPath: screenshotPath)
             fputs("log: handler(CallTool): returning compact summary (\(summary.count) chars)\n", stderr)
 
             return .init(content: [.text(text: summary, annotations: nil, _meta: nil)], isError: isError)
@@ -2034,6 +2003,9 @@ struct MCPServer {
         let server: Server
         do {
             fputs("log: main: calling setupAndStartServer()...\n", stderr)
+            if (try? prepareOutputDirectory(responseOutputDir)) != nil {
+                pruneResponseFiles(in: responseOutputDir, olderThan: 86_400)
+            }
             server = try await setupAndStartServer()
             fputs("log: main: setupAndStartServer() successful, server instance obtained.\n", stderr)
 

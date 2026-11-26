@@ -11,7 +11,7 @@ struct InputGuardCancelled: Error, LocalizedError {
 /// Press Esc (plain, no modifiers) to cancel and immediately release.
 ///
 /// Usage:
-///   InputGuard.shared.engage(message: "Clicking in Safari…")
+///   InputGuard.shared.engage(message: "Clicking in Safari…") // " — press Esc to cancel" is appended when the tap is active
 ///   // … perform automation …
 ///   InputGuard.shared.disengage()
 ///
@@ -31,13 +31,6 @@ final class InputGuard: @unchecked Sendable {
     private var _engaged = false
     private var _cancelled = false
 
-    /// Whether the guard is currently blocking input.
-    var isEngaged: Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        return _engaged
-    }
-
     /// Whether the user pressed Esc to cancel the current automation.
     /// Reset to false each time `engage()` is called.
     var wasCancelled: Bool {
@@ -46,14 +39,10 @@ final class InputGuard: @unchecked Sendable {
         return _cancelled
     }
 
-    /// Callback invoked when the user presses Esc to cancel. Called on an arbitrary thread.
-    var onUserCancelled: (() -> Void)?
-
     /// Throws if the user cancelled via Esc. Call this between automation steps.
     func throwIfCancelled() throws {
         let cancelled = wasCancelled
         fputs("log: InputGuard: throwIfCancelled — wasCancelled=\(cancelled)\n", stderr)
-        try? "throwIfCancelled: wasCancelled=\(cancelled) at \(Date())".write(toFile: "/tmp/macos-use/cancel_check.txt", atomically: true, encoding: .utf8)
         if cancelled {
             throw InputGuardCancelled()
         }
@@ -62,11 +51,16 @@ final class InputGuard: @unchecked Sendable {
     // MARK: - Overlay
     private var overlayWindow: NSWindow?
 
+    /// Offer Esc only when the tap exists to catch it.
+    static func overlayMessage(_ base: String, tapActive: Bool) -> String {
+        tapActive ? "\(base) — press Esc to cancel" : base
+    }
+
     // MARK: - Engage / Disengage
 
     /// Start blocking user input and show the overlay banner.
     /// Blocks until the event tap is active and the overlay is shown.
-    func engage(message: String = "AI is controlling your computer — press Esc to cancel") {
+    func engage(message: String = "AI is controlling your computer") {
         lock.lock()
         guard !_engaged else { lock.unlock(); return }
         _engaged = true
@@ -80,18 +74,18 @@ final class InputGuard: @unchecked Sendable {
         // so the main run loop can still process event tap callbacks during automation.
         if Thread.isMainThread {
             createEventTap()
-            showOverlaySync(message: message)
+            buildAndShowOverlay(message: Self.overlayMessage(message, tapActive: eventTap != nil))
         } else {
             DispatchQueue.main.sync {
                 self.createEventTap()
-                self.showOverlaySync(message: message)
+                self.buildAndShowOverlay(message: Self.overlayMessage(message, tapActive: self.eventTap != nil))
             }
         }
 
         // Start watchdog timer
         startWatchdog()
 
-        fputs("log: InputGuard: engaged — tap active, overlay visible\n", stderr)
+        fputs("log: InputGuard: engaged — tap \(eventTap != nil ? "active" : "unavailable, input not blocked"), overlay visible\n", stderr)
     }
 
     /// Stop blocking user input and hide the overlay.
@@ -138,9 +132,7 @@ final class InputGuard: @unchecked Sendable {
             userInfo: refcon
         ) else {
             fputs("error: InputGuard: failed to create CGEventTap (check Accessibility permissions)\n", stderr)
-            lock.lock()
-            _engaged = false
-            lock.unlock()
+            // keep _engaged so disengage() still removes the overlay
             return
         }
 
@@ -151,7 +143,6 @@ final class InputGuard: @unchecked Sendable {
         CGEvent.tapEnable(tap: tap, enable: true)
         let isEnabled = CGEvent.tapIsEnabled(tap: tap)
         fputs("log: InputGuard: CGEventTap created on main run loop, enabled=\(isEnabled)\n", stderr)
-        try? "tap_created: enabled=\(isEnabled) at \(Date())".write(toFile: "/tmp/macos-use/tap_status.txt", atomically: true, encoding: .utf8)
     }
 
     private func destroyEventTap() {
@@ -186,18 +177,6 @@ final class InputGuard: @unchecked Sendable {
     }
 
     // MARK: - Overlay Window
-
-    /// Show overlay synchronously (must be called on main thread).
-    private func showOverlaySync(message: String) {
-        assert(Thread.isMainThread, "showOverlaySync must be called on main thread")
-        buildAndShowOverlay(message: message)
-    }
-
-    private func showOverlay(message: String) {
-        DispatchQueue.main.async { [weak self] in
-            self?.buildAndShowOverlay(message: message)
-        }
-    }
 
     private func buildAndShowOverlay(message: String) {
         // Ensure NSApplication is set up (no-op if already initialized)
@@ -292,7 +271,6 @@ final class InputGuard: @unchecked Sendable {
         _cancelled = true
         lock.unlock()
         disengage()
-        onUserCancelled?()
     }
 
     /// Re-enable the tap if macOS auto-disabled it.
@@ -331,20 +309,12 @@ private func inputGuardCallback(
         return Unmanaged.passUnretained(event)
     }
 
-    // Log every hardware event for debugging
-    if type == .keyDown || type == .keyUp {
-        let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
-        fputs("log: InputGuard TAP: \(type == .keyDown ? "keyDown" : "keyUp") keyCode=\(keyCode) sourceState=\(sourceStateID)\n", stderr)
-    }
-
     // Check for plain Esc key (keycode 53, no modifiers)
     if type == .keyDown {
         let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
         let flags = event.flags
         let modifierMask: CGEventFlags = [.maskCommand, .maskControl, .maskAlternate, .maskShift]
         if keyCode == 53 && flags.intersection(modifierMask).isEmpty {
-            // Write marker file so we can verify Esc was detected
-            try? "esc_at_\(Date())".write(toFile: "/tmp/macos-use/esc_pressed.txt", atomically: true, encoding: .utf8)
             guard_.handleEscPressed()
             return nil // Suppress the Esc event
         }
