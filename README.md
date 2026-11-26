@@ -73,9 +73,10 @@ Then point your MCP client at `mcp-server-macos-use` (on `PATH`, or `$(brew --pr
 
 ## Development
 
-Requires Xcode and [SwiftLint](https://github.com/realm/SwiftLint) (`brew install swiftlint`).
+Requires Xcode and [mise](https://mise.jdx.dev), which pins the other dev tools (SwiftLint) in `mise.toml`.
 
 ```bash
+mise install  # install pinned dev tools
 make hooks    # enable git hooks: pre-commit (branch name, swift-format, SwiftLint), commit-msg, pre-push
 make fmt      # format Sources and Tests with swift-format
 make verify   # fmt-check + lint + test (what CI runs)

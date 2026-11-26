@@ -66,8 +66,7 @@ jobs:
 
       - uses: ./.github/actions/setup-xcode
 
-      - name: Ensure SwiftLint is installed
-        run: command -v swiftlint >/dev/null 2>&1 || brew install swiftlint
+      - uses: jdx/mise-action@v2
 
       - name: Verify before release
         run: make verify

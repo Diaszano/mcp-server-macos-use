@@ -11,6 +11,8 @@ endif
 SWIFT ?= xcrun --toolchain com.apple.dt.toolchain.XcodeDefault swift
 # `make dist SWIFT_FLAGS="--arch arm64 --arch x86_64"` builds universal binaries (the release workflow does).
 SWIFT_FLAGS ?=
+# Dev tools are pinned in mise.toml (`mise install`).
+SWIFTLINT ?= mise exec -- swiftlint
 SWIFT_FORMAT_CONFIG := .swift-format
 SWIFT_PATHS := Sources Tests
 BINARIES := mcp-server-macos-use screenshot-helper
@@ -41,10 +43,10 @@ fmt-check:
 	$(SWIFT) format lint --configuration $(SWIFT_FORMAT_CONFIG) --strict --recursive --parallel $(SWIFT_PATHS)
 
 lint:
-	swiftlint lint --strict --config .swiftlint.yml
+	$(SWIFTLINT) lint --strict --config .swiftlint.yml
 
 lint-fix:
-	swiftlint lint --fix --config .swiftlint.yml
+	$(SWIFTLINT) lint --fix --config .swiftlint.yml
 
 verify: fmt-check lint test
 

@@ -1,0 +1,3 @@
+[tools]
+# Swift and swift-format come from Xcode; mise pins the remaining dev tools.
+swiftlint = "0.65.1"

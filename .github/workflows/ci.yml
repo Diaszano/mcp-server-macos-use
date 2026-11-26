@@ -32,10 +32,7 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-spm-
 
-      - name: Ensure SwiftLint is installed
-        run: |
-          command -v swiftlint >/dev/null 2>&1 || brew install swiftlint
-          swiftlint version
+      - uses: jdx/mise-action@v2
 
       - name: Check formatting
         run: make fmt-check

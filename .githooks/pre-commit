@@ -27,9 +27,9 @@ if [ -z "${DEVELOPER_DIR:-}" ] && [ -d /Applications/Xcode.app/Contents/Develope
     export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
 fi
 
-if command -v swiftlint >/dev/null 2>&1; then
+if command -v mise >/dev/null 2>&1; then
     # shellcheck disable=SC2086
-    swiftlint lint --strict --quiet --config "$TOPLEVEL/.swiftlint.yml" $FILES
+    mise exec -C "$TOPLEVEL" -- swiftlint lint --strict --quiet --config "$TOPLEVEL/.swiftlint.yml" $FILES
 else
-    echo "⚠️  swiftlint not installed (brew install swiftlint); skipping lint." >&2
+    echo "⚠️  mise not installed (https://mise.jdx.dev); skipping SwiftLint." >&2
 fi
