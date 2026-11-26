@@ -1,9 +1,9 @@
-import MCP
+import AppKit  // For NSEvent.mouseLocation (cursor position save/restore)
+import ApplicationServices  // For AXUIElement APIs (scroll-into-view, window bounds)
+import CoreGraphics  // Still needed for CGPoint, CGEventFlags
 import Foundation
-import CoreGraphics // Still needed for CGPoint, CGEventFlags
-import ApplicationServices // For AXUIElement APIs (scroll-into-view, window bounds)
-import AppKit // For NSEvent.mouseLocation (cursor position save/restore)
-import MacosUseSDK // <-- Import the SDK
+import MCP
+import MacosUseSDK  // <-- Import the SDK
 
 // --- Function to get arguments from MCP Value ---
 // Helper to extract typed values safely
@@ -28,12 +28,11 @@ func getRequiredInt(from args: [String: Value]?, key: String) throws -> Int {
     return value
 }
 
-
 // --- Get Optional arguments ---
 // Helper for optional values
 func getOptionalDouble(from args: [String: Value]?, key: String) throws -> Double? {
-    guard let value = args?[key] else { return nil } // Key not present is valid for optional
-    if value.isNull { return nil } // Explicit null is also valid
+    guard let value = args?[key] else { return nil }  // Key not present is valid for optional
+    if value.isNull { return nil }  // Explicit null is also valid
     switch value {
     case .int(let intValue):
         fputs("log: getOptionalDouble: converting int \(intValue) to double for key '\(key)'\n", stderr)
@@ -45,23 +44,28 @@ func getOptionalDouble(from args: [String: Value]?, key: String) throws -> Doubl
             fputs("log: getOptionalDouble: converting string \"\(stringValue)\" to double for key '\(key)'\n", stderr)
             return doubleValue
         }
-        throw MCPError.invalidParams("Invalid type for number argument: '\(key)', string \"\(stringValue)\" is not a valid number")
+        throw MCPError.invalidParams(
+            "Invalid type for number argument: '\(key)', string \"\(stringValue)\" is not a valid number")
     default:
-        throw MCPError.invalidParams("Invalid type for number argument: '\(key)', expected Int, Double, or numeric String, got \(value)")
+        throw MCPError.invalidParams(
+            "Invalid type for number argument: '\(key)', expected Int, Double, or numeric String, got \(value)")
     }
 }
 
 func getOptionalInt(from args: [String: Value]?, key: String) throws -> Int? {
-    guard let value = args?[key] else { return nil } // Key not present is valid for optional
-    if value.isNull { return nil } // Explicit null is also valid
+    guard let value = args?[key] else { return nil }  // Key not present is valid for optional
+    if value.isNull { return nil }  // Explicit null is also valid
 
     if let doubleValue = value.doubleValue {
         if let intValue = Int(exactly: doubleValue) {
-             fputs("log: getOptionalInt: converting exact double \(doubleValue) to int for key '\(key)'\n", stderr)
-             return intValue
+            fputs("log: getOptionalInt: converting exact double \(doubleValue) to int for key '\(key)'\n", stderr)
+            return intValue
         } else {
-            fputs("warning: getOptionalInt: received non-exact double \(doubleValue) for key '\(key)', expecting integer.\n", stderr)
-            throw MCPError.invalidParams("Invalid type for integer argument: '\(key)', received non-exact Double \(doubleValue)")
+            fputs(
+                "warning: getOptionalInt: received non-exact double \(doubleValue) for key '\(key)', expecting integer.\n",
+                stderr)
+            throw MCPError.invalidParams(
+                "Invalid type for integer argument: '\(key)', received non-exact Double \(doubleValue)")
         }
     }
     // Allow conversion from String (MCP clients may send numbers as strings)
@@ -70,18 +74,19 @@ func getOptionalInt(from args: [String: Value]?, key: String) throws -> Int? {
         return intValue
     }
     guard let intValue = value.intValue else {
-        throw MCPError.invalidParams("Invalid type for integer argument: '\(key)', expected Int, exact Double, or numeric String, got \(value)")
+        throw MCPError.invalidParams(
+            "Invalid type for integer argument: '\(key)', expected Int, exact Double, or numeric String, got \(value)")
     }
     return intValue
 }
 
 func getOptionalBool(from args: [String: Value]?, key: String) throws -> Bool? {
-     guard let value = args?[key] else { return nil } // Key not present
-     if value.isNull { return nil } // Explicit null
-     guard let boolValue = value.boolValue else {
-         throw MCPError.invalidParams("Invalid type for boolean argument: '\(key)', expected Bool, got \(value)")
-     }
-     return boolValue
+    guard let value = args?[key] else { return nil }  // Key not present
+    if value.isNull { return nil }  // Explicit null
+    guard let boolValue = value.boolValue else {
+        throw MCPError.invalidParams("Invalid type for boolean argument: '\(key)', expected Bool, got \(value)")
+    }
+    return boolValue
 }
 
 /// Click point from required x/y; centered on the element when width and height are given.
@@ -89,7 +94,8 @@ func hitPoint(from args: [String: Value]?) throws -> CGPoint {
     let x = try getRequiredDouble(from: args, key: "x")
     let y = try getRequiredDouble(from: args, key: "y")
     if let w = try getOptionalDouble(from: args, key: "width"),
-       let h = try getOptionalDouble(from: args, key: "height") {
+        let h = try getOptionalDouble(from: args, key: "height")
+    {
         return CGPoint(x: x + w / 2, y: y + h / 2)
     }
     return CGPoint(x: x, y: y)
@@ -106,7 +112,7 @@ func optionalPoint(from args: [String: Value]?) -> (x: Int, y: Int) {
 func activateApp(pid: pid_t) async {
     guard let runningApp = NSRunningApplication(processIdentifier: pid) else { return }
     runningApp.activate(options: [])
-    try? await Task.sleep(nanoseconds: 200_000_000) // 200ms for activation
+    try? await Task.sleep(nanoseconds: 200_000_000)  // 200ms for activation
 }
 
 // --- NEW Helper to parse modifier flags ---
@@ -122,22 +128,22 @@ func parseFlags(from value: Value?) throws -> CGEventFlags {
             throw MCPError.invalidParams("Invalid modifierFlags array: contains non-string element \(flagValue)")
         }
         switch flagString.lowercased() {
-            // Standard modifiers
-            case "capslock", "caps": flags.insert(.maskAlphaShift)
-            case "shift": flags.insert(.maskShift)
-            case "control", "ctrl": flags.insert(.maskControl)
-            case "option", "opt", "alt": flags.insert(.maskAlternate)
-            case "command", "cmd": flags.insert(.maskCommand)
-            // Other potentially useful flags
-            case "help": flags.insert(.maskHelp)
-            case "function", "fn": flags.insert(.maskSecondaryFn)
-            case "numericpad", "numpad": flags.insert(.maskNumericPad)
-            // Non-keyed state (less common for press simulation)
-            // case "noncoalesced": flags.insert(.maskNonCoalesced)
-            default:
-                fputs("warning: parseFlags: unknown modifier flag string '\(flagString)', ignoring.\n", stderr)
-                // Optionally throw an error:
-                // throw MCPError.invalidParams("Unknown modifier flag: '\(flagString)'")
+        // Standard modifiers
+        case "capslock", "caps": flags.insert(.maskAlphaShift)
+        case "shift": flags.insert(.maskShift)
+        case "control", "ctrl": flags.insert(.maskControl)
+        case "option", "opt", "alt": flags.insert(.maskAlternate)
+        case "command", "cmd": flags.insert(.maskCommand)
+        // Other potentially useful flags
+        case "help": flags.insert(.maskHelp)
+        case "function", "fn": flags.insert(.maskSecondaryFn)
+        case "numericpad", "numpad": flags.insert(.maskNumericPad)
+        // Non-keyed state (less common for press simulation)
+        // case "noncoalesced": flags.insert(.maskNonCoalesced)
+        default:
+            fputs("warning: parseFlags: unknown modifier flag string '\(flagString)', ignoring.\n", stderr)
+        // Optionally throw an error:
+        // throw MCPError.invalidParams("Unknown modifier flag: '\(flagString)'")
         }
     }
     return flags
@@ -145,6 +151,9 @@ func parseFlags(from value: Value?) throws -> CGEventFlags {
 
 // --- Enriched Data Structures (adds in_viewport metadata) ---
 
+// snake_case names are the JSON wire format.
+// swift-format-ignore: AlwaysUseLowerCamelCase
+// swiftlint:disable identifier_name
 struct EnrichedElementData: Codable {
     var role: String
     var text: String?
@@ -154,14 +163,22 @@ struct EnrichedElementData: Codable {
     var height: Double?
     var in_viewport: Bool?
 }
+// swiftlint:enable identifier_name
 
+// snake_case names are the JSON wire format.
+// swift-format-ignore: AlwaysUseLowerCamelCase
+// swiftlint:disable identifier_name
 struct EnrichedResponseData: Codable {
     let app_name: String
     var elements: [EnrichedElementData]
     var stats: Statistics
     let processing_time_seconds: String
 }
+// swiftlint:enable identifier_name
 
+// snake_case names are the JSON wire format.
+// swift-format-ignore: AlwaysUseLowerCamelCase
+// swiftlint:disable identifier_name
 /// Diff element: role, text, viewport status, and coordinates for spatial targeting
 struct DiffElementData: Codable {
     var role: String
@@ -172,6 +189,7 @@ struct DiffElementData: Codable {
     var width: Double?
     var height: Double?
 }
+// swiftlint:enable identifier_name
 
 struct DiffAttributeChange: Codable {
     let attributeName: String
@@ -197,8 +215,8 @@ struct EnrichedTraversalDiff: Codable {
 struct ToolResponse: Codable {
     var openResult: AppOpenerResult?
     var traversalPid: pid_t?
-    var traversal: EnrichedResponseData?      // for open/refresh: full current state
-    var diff: EnrichedTraversalDiff?           // for click/type/press: what changed
+    var traversal: EnrichedResponseData?  // for open/refresh: full current state
+    var diff: EnrichedTraversalDiff?  // for click/type/press: what changed
     var primaryActionError: String?
     var traversalError: String?
 
@@ -225,25 +243,31 @@ func findSheetBounds(pid: pid_t) -> CGRect? {
     // Check all windows for AXSheet children
     var windowsRef: CFTypeRef?
     guard AXUIElementCopyAttributeValue(appElement, "AXWindows" as CFString, &windowsRef) == .success,
-          let windows = windowsRef as? [AXUIElement] else { return nil }
+        let windows = windowsRef as? [AXUIElement]
+    else { return nil }
 
     for window in windows {
         AXUIElementSetMessagingTimeout(window, 5.0)
         // Look for AXSheet role among children
         var childCount: CFIndex = 0
         guard AXUIElementGetAttributeValueCount(window, kAXChildrenAttribute as CFString, &childCount) == .success,
-              childCount > 0 else { continue }
+            childCount > 0
+        else { continue }
         let fetchCount = min(CFIndex(50), childCount)
         var childrenRef: CFArray?
-        guard AXUIElementCopyAttributeValues(window, kAXChildrenAttribute as CFString, 0, fetchCount, &childrenRef) == .success,
-              let cfArray = childrenRef else { continue }
+        guard
+            AXUIElementCopyAttributeValues(window, kAXChildrenAttribute as CFString, 0, fetchCount, &childrenRef)
+                == .success,
+            let cfArray = childrenRef
+        else { continue }
         let children = cfArray as [AnyObject]
         for child in children {
             let childElement = child as! AXUIElement
             AXUIElementSetMessagingTimeout(childElement, 5.0)
             var roleRef: CFTypeRef?
             guard AXUIElementCopyAttributeValue(childElement, kAXRoleAttribute as CFString, &roleRef) == .success,
-                  let role = roleRef as? String else { continue }
+                let role = roleRef as? String
+            else { continue }
             if role == "AXSheet" {
                 if let frame = getAXElementFrame(childElement) {
                     fputs("log: findSheetBounds: found AXSheet at \(frame)\n", stderr)
@@ -262,8 +286,9 @@ func getWindowBoundsFromTraversal(_ responseData: ResponseData?) -> CGRect? {
     guard let response = responseData else { return nil }
     for element in response.elements {
         if element.role == "AXWindow",
-           let x = element.x, let y = element.y,
-           let w = element.width, let h = element.height {
+            let x = element.x, let y = element.y,
+            let w = element.width, let h = element.height
+        {
             return CGRect(x: x, y: y, width: w, height: h)
         }
     }
@@ -276,8 +301,9 @@ func getAllWindowBoundsFromTraversal(_ responseData: ResponseData?) -> [CGRect] 
     guard let response = responseData else { return [] }
     return response.elements.compactMap { element in
         guard element.role == "AXWindow",
-              let x = element.x, let y = element.y,
-              let w = element.width, let h = element.height else { return nil }
+            let x = element.x, let y = element.y,
+            let w = element.width, let h = element.height
+        else { return nil }
         return CGRect(x: x, y: y, width: w, height: h)
     }
 }
@@ -288,7 +314,8 @@ func getAllWindowBoundsFromAPI(pid: pid_t) -> [CGRect] {
     AXUIElementSetMessagingTimeout(appElement, 5.0)
     var windowsRef: CFTypeRef?
     guard AXUIElementCopyAttributeValue(appElement, "AXWindows" as CFString, &windowsRef) == .success,
-          let windows = windowsRef as? [AXUIElement] else { return [] }
+        let windows = windowsRef as? [AXUIElement]
+    else { return [] }
     return windows.compactMap { getAXElementFrame($0) }
 }
 
@@ -302,7 +329,8 @@ func isPointInAnyWindow(_ point: CGPoint, windows: [CGRect]) -> Bool {
 func getWindowContainingPoint(appElement: AXUIElement, point: CGPoint) -> (element: AXUIElement, bounds: CGRect)? {
     var windowsRef: CFTypeRef?
     if AXUIElementCopyAttributeValue(appElement, "AXWindows" as CFString, &windowsRef) == .success,
-       let windows = windowsRef as? [AXUIElement] {
+        let windows = windowsRef as? [AXUIElement]
+    {
         for window in windows {
             AXUIElementSetMessagingTimeout(window, 5.0)
             guard let frame = getAXElementFrame(window) else { continue }
@@ -361,9 +389,14 @@ func getWindowBoundsFromAPI(pid: pid_t) -> CGRect? {
 /// (screenshot-helper) so that the ReplayKit framework — loaded as a side-effect
 /// by macOS — dies with the subprocess instead of spinning at ~19% CPU forever
 /// in the parent MCP server process.
-func captureWindowScreenshot(pid: pid_t, outputPath: String, clickPoint: CGPoint? = nil, traversalWindowBounds: CGRect? = nil) -> String? {
+func captureWindowScreenshot(
+    pid: pid_t, outputPath: String, clickPoint: CGPoint? = nil, traversalWindowBounds: CGRect? = nil
+) -> String? {
     // Get the list of windows for this PID
-    guard let windowList = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else {
+    guard
+        let windowList = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)
+            as? [[String: Any]]
+    else {
         fputs("warning: captureWindowScreenshot: could not get window list\n", stderr)
         return nil
     }
@@ -371,16 +404,17 @@ func captureWindowScreenshot(pid: pid_t, outputPath: String, clickPoint: CGPoint
     // Find the correct window for this PID.
     // Strategy: if we have traversal window bounds, match the CGWindow whose bounds
     // best overlap with the traversal window. Otherwise fall back to largest window.
-    var targetWindowID: CGWindowID? = nil
-    var windowBoundsDict: CFDictionary? = nil
+    var targetWindowID: CGWindowID?
+    var windowBoundsDict: CFDictionary?
     var bestScore: CGFloat = 0
 
     for window in windowList {
         guard let ownerPID = window[kCGWindowOwnerPID as String] as? pid_t,
-              ownerPID == pid,
-              let layer = window[kCGWindowLayer as String] as? Int,
-              layer == 0,
-              let windowID = window[kCGWindowNumber as String] as? CGWindowID else {
+            ownerPID == pid,
+            let layer = window[kCGWindowLayer as String] as? Int,
+            layer == 0,
+            let windowID = window[kCGWindowNumber as String] as? CGWindowID
+        else {
             continue
         }
         let bounds = window[kCGWindowBounds as String] as! CFDictionary
@@ -427,8 +461,12 @@ func captureWindowScreenshot(pid: pid_t, outputPath: String, clickPoint: CGPoint
         var windowRect = CGRect.zero
         CGRectMakeWithDictionaryRepresentation(boundsDict, &windowRect)
         helperArgs += ["--click", "\(clickPoint.x),\(clickPoint.y)"]
-        helperArgs += ["--bounds", "\(windowRect.origin.x),\(windowRect.origin.y),\(windowRect.width),\(windowRect.height)"]
-        fputs("log: captureWindowScreenshot: invoking subprocess with click=\(clickPoint.x),\(clickPoint.y) bounds=\(windowRect)\n", stderr)
+        helperArgs += [
+            "--bounds", "\(windowRect.origin.x),\(windowRect.origin.y),\(windowRect.width),\(windowRect.height)",
+        ]
+        fputs(
+            "log: captureWindowScreenshot: invoking subprocess with click=\(clickPoint.x),\(clickPoint.y) bounds=\(windowRect)\n",
+            stderr)
     }
 
     fputs("log: captureWindowScreenshot: launching screenshot-helper for window \(windowID)...\n", stderr)
@@ -473,7 +511,9 @@ func captureWindowScreenshot(pid: pid_t, outputPath: String, clickPoint: CGPoint
     }
 
     guard process.terminationStatus == 0 else {
-        fputs("warning: captureWindowScreenshot: screenshot-helper exited with status \(process.terminationStatus)\n", stderr)
+        fputs(
+            "warning: captureWindowScreenshot: screenshot-helper exited with status \(process.terminationStatus)\n",
+            stderr)
         return nil
     }
 
@@ -489,7 +529,9 @@ func captureWindowScreenshot(pid: pid_t, outputPath: String, clickPoint: CGPoint
 }
 
 /// Enrich a ResponseData with in_viewport metadata for each element
-func enrichResponseData(_ response: ResponseData, windowBounds: CGRect?, allWindowBounds: [CGRect] = []) -> EnrichedResponseData {
+func enrichResponseData(_ response: ResponseData, windowBounds: CGRect?, allWindowBounds: [CGRect] = [])
+    -> EnrichedResponseData
+{
     // Use all window bounds if available; fall back to single windowBounds
     let boundsToCheck: [CGRect]
     if !allWindowBounds.isEmpty {
@@ -532,12 +574,14 @@ func findTextForElement(_ element: ElementData, in traversal: ResponseData?) -> 
 
     // Strategy 1: coordinate containment (works for visible elements)
     if let x = element.x, let y = element.y,
-       let w = element.width, let h = element.height {
+        let w = element.width, let h = element.height
+    {
         let bounds = CGRect(x: x, y: y, width: w, height: h)
         for el in elements {
             if let elText = el.text, !elText.isEmpty,
-               let elX = el.x, let elY = el.y,
-               bounds.contains(CGPoint(x: elX, y: elY)) {
+                let elX = el.x, let elY = el.y,
+                bounds.contains(CGPoint(x: elX, y: elY))
+            {
                 return elText
             }
         }
@@ -548,8 +592,9 @@ func findTextForElement(_ element: ElementData, in traversal: ResponseData?) -> 
     if let x = element.x, let y = element.y {
         for (i, el) in elements.enumerated() {
             if el.role == element.role,
-               let elX = el.x, let elY = el.y,
-               abs(elX - x) < 2, abs(elY - y) < 2 {
+                let elX = el.x, let elY = el.y,
+                abs(elX - x) < 2, abs(elY - y) < 2
+            {
                 // Found the element — look at next few entries for text
                 for j in (i + 1)..<min(i + 6, elements.count) {
                     if let text = elements[j].text, !text.isEmpty {
@@ -569,26 +614,25 @@ func findTextForElement(_ element: ElementData, in traversal: ResponseData?) -> 
 /// Returns true if the role represents a scroll-bar component (noise in diffs).
 func isScrollBarNoise(_ role: String) -> Bool {
     let lower = role.lowercased()
-    return lower.contains("scrollbar") || lower.contains("scroll bar") ||
-           lower.contains("value indicator") ||
-           lower.contains("page button") || lower.contains("arrow button")
+    return lower.contains("scrollbar") || lower.contains("scroll bar") || lower.contains("value indicator")
+        || lower.contains("page button") || lower.contains("arrow button")
 }
 
 /// Returns true if the role is a structural container that's noise without text.
 func isStructuralNoise(_ role: String, text: String?) -> Bool {
     if let text = text, !text.isEmpty { return false }
     let lower = role.lowercased()
-    return lower.contains("axrow") || lower.contains("outline row") ||
-           lower.contains("axcell") || lower.contains("cell") ||
-           lower.contains("axcolumn") || lower.contains("column") ||
-           lower.contains("axmenu") || lower.contains("menu")
+    return lower.contains("axrow") || lower.contains("outline row") || lower.contains("axcell")
+        || lower.contains("cell") || lower.contains("axcolumn") || lower.contains("column") || lower.contains("axmenu")
+        || lower.contains("menu")
 }
 
 /// Build a ToolResponse from an ActionResult.
 /// For actions with diff: returns only the diff (enriched with in_viewport on added elements).
 /// For open/refresh: returns the full traversal (enriched with in_viewport).
 func buildToolResponse(_ result: ActionResult, hasDiff: Bool) -> ToolResponse {
-    var windowBounds = getWindowBoundsFromTraversal(result.traversalAfter)
+    var windowBounds =
+        getWindowBoundsFromTraversal(result.traversalAfter)
         ?? getWindowBoundsFromTraversal(result.traversalBefore)
     if windowBounds == nil {
         if let pid = result.traversalPid ?? result.openResult?.pid {
@@ -637,7 +681,8 @@ func buildToolResponse(_ result: ActionResult, hasDiff: Bool) -> ToolResponse {
                     inViewport = nil
                 }
                 let text = findTextForElement(element, in: result.traversalAfter)
-                return DiffElementData(role: element.role, text: text, in_viewport: inViewport,
+                return DiffElementData(
+                    role: element.role, text: text, in_viewport: inViewport,
                     x: element.x, y: element.y, width: element.width, height: element.height)
             }
             .filter { !isStructuralNoise($0.role, text: $0.text) }
@@ -646,7 +691,8 @@ func buildToolResponse(_ result: ActionResult, hasDiff: Bool) -> ToolResponse {
             .filter { !isScrollBarNoise($0.role) }
             .map { element -> DiffElementData in
                 let text = findTextForElement(element, in: result.traversalBefore)
-                return DiffElementData(role: element.role, text: text, in_viewport: nil,
+                return DiffElementData(
+                    role: element.role, text: text, in_viewport: nil,
                     x: element.x, y: element.y, width: element.width, height: element.height)
             }
             .filter { !isStructuralNoise($0.role, text: $0.text) }
@@ -672,21 +718,26 @@ func buildToolResponse(_ result: ActionResult, hasDiff: Bool) -> ToolResponse {
             let beforeVP: Bool?
             if let x = mod.before.x, let y = mod.before.y, !allWindowBounds.isEmpty {
                 beforeVP = isPointInAnyWindow(CGPoint(x: x, y: y), windows: allWindowBounds)
-            } else { beforeVP = nil }
+            } else {
+                beforeVP = nil
+            }
 
             let afterVP: Bool?
             if let x = mod.after.x, let y = mod.after.y, !allWindowBounds.isEmpty {
                 afterVP = isPointInAnyWindow(CGPoint(x: x, y: y), windows: allWindowBounds)
-            } else { afterVP = nil }
+            } else {
+                afterVP = nil
+            }
 
             let beforeText = findTextForElement(mod.before, in: result.traversalBefore)
             let afterText = findTextForElement(mod.after, in: result.traversalAfter)
 
-            filteredModified.append(DiffModifiedElement(
-                before: DiffElementData(role: mod.before.role, text: beforeText, in_viewport: beforeVP),
-                after: DiffElementData(role: mod.after.role, text: afterText, in_viewport: afterVP),
-                changes: diffChanges
-            ))
+            filteredModified.append(
+                DiffModifiedElement(
+                    before: DiffElementData(role: mod.before.role, text: beforeText, in_viewport: beforeVP),
+                    after: DiffElementData(role: mod.after.role, text: afterText, in_viewport: afterVP),
+                    changes: diffChanges
+                ))
         }
 
         response.diff = EnrichedTraversalDiff(
@@ -719,9 +770,10 @@ func rankElementMatches(_ elements: [EnrichedElementData], search: String, role:
     let roleLower = role?.lowercased()
     let matches = elements.filter { elem in
         guard let text = elem.text, !text.isEmpty,
-              elem.x != nil, elem.y != nil,
-              let w = elem.width, let h = elem.height,
-              w > 0, h > 0 else { return false }
+            elem.x != nil, elem.y != nil,
+            let w = elem.width, let h = elem.height,
+            w > 0, h > 0
+        else { return false }
         return text.lowercased().contains(searchLower)
             && (roleLower == nil || elem.role.lowercased().hasPrefix(roleLower!))
     }
@@ -739,7 +791,10 @@ func rankElementMatches(_ elements: [EnrichedElementData], search: String, role:
 
 /// Build a concise text summary for the MCP response instead of returning the full JSON.
 /// The full JSON is written to a file; this summary contains just the key info + file path.
-func buildCompactSummary(toolName: String, params: CallTool.Parameters, toolResponse: ToolResponse, filepath: String, fileSize: Int, screenshotPath: String? = nil) -> String {
+func buildCompactSummary(
+    toolName: String, params: CallTool.Parameters, toolResponse: ToolResponse, filepath: String, fileSize: Int,
+    screenshotPath: String? = nil
+) -> String {
     var lines: [String] = []
 
     // Status line
@@ -790,7 +845,8 @@ func buildCompactSummary(toolName: String, params: CallTool.Parameters, toolResp
         if let traversal = toolResponse.traversal {
             let total = traversal.elements.count
             let visible = traversal.elements.filter { $0.in_viewport == true }.count
-            summaryLine = "Opened \(identifier) (PID:\(toolResponse.traversalPid ?? 0)). \(total) elements, \(visible) visible."
+            summaryLine =
+                "Opened \(identifier) (PID:\(toolResponse.traversalPid ?? 0)). \(total) elements, \(visible) visible."
         } else {
             summaryLine = "Opened \(identifier) (PID:\(toolResponse.traversalPid ?? 0))."
         }
@@ -832,7 +888,8 @@ func buildCompactSummary(toolName: String, params: CallTool.Parameters, toolResp
         if let traversal = toolResponse.traversal {
             let total = traversal.elements.count
             let visible = traversal.elements.filter { $0.in_viewport == true }.count
-            summaryLine = "Refreshed PID \(toolResponse.traversalPid ?? 0) (\(traversal.app_name)). \(total) elements, \(visible) visible."
+            summaryLine =
+                "Refreshed PID \(toolResponse.traversalPid ?? 0) (\(traversal.app_name)). \(total) elements, \(visible) visible."
         } else {
             summaryLine = "Refreshed PID \(toolResponse.traversalPid ?? 0)."
         }
@@ -891,7 +948,8 @@ func buildCompactSummary(toolName: String, params: CallTool.Parameters, toolResp
         lines.append(contentsOf: visLines)
     } else if let diff = toolResponse.diff, !diff.added.isEmpty {
         // Diff (click/type/press/scroll): show newly added visible elements
-        let visLines = buildVisibleElementsSection(elements: diff.added, label: "visible_elements", interactiveCap: 20, textCap: 10)
+        let visLines = buildVisibleElementsSection(
+            elements: diff.added, label: "visible_elements", interactiveCap: 20, textCap: 10)
         lines.append(contentsOf: visLines)
     }
 
@@ -903,7 +961,8 @@ func buildCompactSummary(toolName: String, params: CallTool.Parameters, toolResp
             let total = switchTraversal.elements.count
             let visible = switchTraversal.elements.filter { $0.in_viewport == true }.count
             lines.append("app_switch_elements: \(total) total, \(visible) visible")
-            let visLines = buildVisibleElementsSection(elements: switchTraversal.elements, label: "app_switch_visible_elements")
+            let visLines = buildVisibleElementsSection(
+                elements: switchTraversal.elements, label: "app_switch_visible_elements")
             lines.append(contentsOf: visLines)
         }
     }
@@ -926,6 +985,9 @@ func truncate(_ s: String, maxLen: Int) -> String {
     s.count > maxLen ? String(s.prefix(maxLen)) + "..." : s
 }
 
+// snake_case names are the JSON wire format.
+// swift-format-ignore: AlwaysUseLowerCamelCase
+// swiftlint:disable identifier_name
 /// Protocol for element types that can be displayed in visible elements section
 protocol VisibleElement {
     var role: String { get }
@@ -936,6 +998,7 @@ protocol VisibleElement {
     var width: Double? { get }
     var height: Double? { get }
 }
+// swiftlint:enable identifier_name
 extension EnrichedElementData: VisibleElement {}
 extension DiffElementData: VisibleElement {}
 
@@ -943,7 +1006,7 @@ extension DiffElementData: VisibleElement {}
 private let interactiveRolePrefixes: [String] = [
     "AXButton", "AXLink", "AXTextField", "AXTextArea", "AXCheckBox",
     "AXRadioButton", "AXPopUpButton", "AXComboBox", "AXSlider",
-    "AXMenuItem", "AXMenuButton", "AXTab"
+    "AXMenuItem", "AXMenuButton", "AXTab",
 ]
 
 /// Check if a role string matches any interactive prefix
@@ -957,7 +1020,9 @@ private func isStaticTextRole(_ role: String) -> Bool {
 }
 
 /// Build a visible_elements section from a list of elements
-func buildVisibleElementsSection<T: VisibleElement>(elements: [T], label: String, interactiveCap: Int = 30, textCap: Int = 10) -> [String] {
+func buildVisibleElementsSection<T: VisibleElement>(
+    elements: [T], label: String, interactiveCap: Int = 30, textCap: Int = 10
+) -> [String] {
     var interactive: [String] = []
     var staticText: [String] = []
 
@@ -1021,7 +1086,8 @@ func buildFlatTextResponse(_ toolResponse: ToolResponse) -> String {
 
     if let traversal = toolResponse.traversal {
         // Full traversal
-        lines.append("# \(traversal.app_name) — \(traversal.elements.count) elements (\(traversal.processing_time_seconds)s)")
+        lines.append(
+            "# \(traversal.app_name) — \(traversal.elements.count) elements (\(traversal.processing_time_seconds)s)")
         if toolResponse.sheetDetected == true {
             lines.append("# dialog: AXSheet detected")
         }
@@ -1032,7 +1098,8 @@ func buildFlatTextResponse(_ toolResponse: ToolResponse) -> String {
     }
 
     if let diff = toolResponse.diff {
-        lines.append("# diff: +\(diff.added.count) added, -\(diff.removed.count) removed, ~\(diff.modified.count) modified")
+        lines.append(
+            "# diff: +\(diff.added.count) added, -\(diff.removed.count) removed, ~\(diff.modified.count) modified")
         if toolResponse.sheetDetected == true {
             lines.append("# dialog: AXSheet detected")
         }
@@ -1057,7 +1124,8 @@ func buildFlatTextResponse(_ toolResponse: ToolResponse) -> String {
     // Cross-app handoff
     if let switchTraversal = toolResponse.appSwitchTraversal {
         lines.append("")
-        lines.append("# app_switch: \(toolResponse.appSwitchAppName ?? "Unknown") (PID: \(toolResponse.appSwitchPid ?? 0))")
+        lines.append(
+            "# app_switch: \(toolResponse.appSwitchAppName ?? "Unknown") (PID: \(toolResponse.appSwitchPid ?? 0))")
         for el in switchTraversal.elements {
             lines.append(formatElementLine(el))
         }
@@ -1084,7 +1152,7 @@ func prepareOutputDirectory(_ path: String) throws {
     let fm = FileManager.default
     // Creation may lose a race to another process; the checks below run on whatever ends up there
     try? fm.createDirectory(atPath: path, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
-    let attrs = try fm.attributesOfItem(atPath: path) // lstat: does not follow symlinks
+    let attrs = try fm.attributesOfItem(atPath: path)  // lstat: does not follow symlinks
     guard attrs[.type] as? FileAttributeType == .typeDirectory else {
         throw MCPError.internalError("Output path \(path) is not a directory")
     }
@@ -1120,11 +1188,12 @@ func findAXElementAtPoint(root: AXUIElement, point: CGPoint, maxDepth: Int = 25)
     var posRef: CFTypeRef?
     var sizeRef: CFTypeRef?
     let hasFrame =
-        AXUIElementCopyAttributeValue(root, "AXPosition" as CFString, &posRef) == .success &&
-        AXUIElementCopyAttributeValue(root, "AXSize" as CFString, &sizeRef) == .success
+        AXUIElementCopyAttributeValue(root, "AXPosition" as CFString, &posRef) == .success
+        && AXUIElementCopyAttributeValue(root, "AXSize" as CFString, &sizeRef) == .success
     var containsPoint = false
     if hasFrame {
-        var pos = CGPoint.zero; var sz = CGSize.zero
+        var pos = CGPoint.zero
+        var sz = CGSize.zero
         AXValueGetValue(posRef as! AXValue, .cgPoint, &pos)
         AXValueGetValue(sizeRef as! AXValue, .cgSize, &sz)
         containsPoint = CGRect(origin: pos, size: sz).contains(point)
@@ -1132,7 +1201,8 @@ func findAXElementAtPoint(root: AXUIElement, point: CGPoint, maxDepth: Int = 25)
 
     var childrenRef: CFTypeRef?
     if AXUIElementCopyAttributeValue(root, "AXChildren" as CFString, &childrenRef) == .success,
-       let children = childrenRef as? [AXUIElement] {
+        let children = childrenRef as? [AXUIElement]
+    {
         for child in children {
             if let found = findAXElementAtPoint(root: child, point: point, maxDepth: maxDepth - 1) {
                 return found
@@ -1147,18 +1217,21 @@ func findAXElementAtPoint(root: AXUIElement, point: CGPoint, maxDepth: Int = 25)
 func getAXElementText(_ element: AXUIElement, searchChildren: Bool = true) -> String? {
     var valueRef: CFTypeRef?
     if AXUIElementCopyAttributeValue(element, "AXValue" as CFString, &valueRef) == .success,
-       let str = valueRef as? String, !str.isEmpty {
+        let str = valueRef as? String, !str.isEmpty
+    {
         return str
     }
     if AXUIElementCopyAttributeValue(element, "AXTitle" as CFString, &valueRef) == .success,
-       let str = valueRef as? String, !str.isEmpty {
+        let str = valueRef as? String, !str.isEmpty
+    {
         return str
     }
     // For container elements (AXRow, AXCell), check children for text
     if searchChildren {
         var childrenRef: CFTypeRef?
         if AXUIElementCopyAttributeValue(element, "AXChildren" as CFString, &childrenRef) == .success,
-           let children = childrenRef as? [AXUIElement] {
+            let children = childrenRef as? [AXUIElement]
+        {
             for child in children {
                 if let childText = getAXElementText(child, searchChildren: true) {
                     return childText
@@ -1174,8 +1247,10 @@ func getAXElementFrame(_ element: AXUIElement) -> CGRect? {
     var posRef: CFTypeRef?
     var sizeRef: CFTypeRef?
     guard AXUIElementCopyAttributeValue(element, "AXPosition" as CFString, &posRef) == .success,
-          AXUIElementCopyAttributeValue(element, "AXSize" as CFString, &sizeRef) == .success else { return nil }
-    var pos = CGPoint.zero; var sz = CGSize.zero
+        AXUIElementCopyAttributeValue(element, "AXSize" as CFString, &sizeRef) == .success
+    else { return nil }
+    var pos = CGPoint.zero
+    var sz = CGSize.zero
     AXValueGetValue(posRef as! AXValue, .cgPoint, &pos)
     AXValueGetValue(sizeRef as! AXValue, .cgSize, &sz)
     return CGRect(origin: pos, size: sz)
@@ -1198,7 +1273,8 @@ func findElementByText(root: AXUIElement, text: String, viewport: CGRect, maxDep
 
     var childrenRef: CFTypeRef?
     if AXUIElementCopyAttributeValue(root, "AXChildren" as CFString, &childrenRef) == .success,
-       let children = childrenRef as? [AXUIElement] {
+        let children = childrenRef as? [AXUIElement]
+    {
         for child in children {
             if let found = findElementByText(root: child, text: text, viewport: viewport, maxDepth: maxDepth - 1) {
                 return found
@@ -1238,8 +1314,9 @@ func scrollIntoViewIfNeeded(pid: pid_t, point: CGPoint) async -> CGPoint {
     let targetElement = findAXElementAtPoint(root: windowElement, point: point)
     let targetText = targetElement != nil ? getAXElementText(targetElement!) : nil
 
-    let scrollingUp: Bool = point.y > windowBounds.maxY   // need to reveal content below
-    let distance: CGFloat = scrollingUp
+    let scrollingUp: Bool = point.y > windowBounds.maxY  // need to reveal content below
+    let distance: CGFloat =
+        scrollingUp
         ? point.y - windowBounds.maxY
         : windowBounds.minY - point.y
     // Scale lines per step to distance: 1 line for tiny offsets, up to 3 for large ones.
@@ -1250,33 +1327,49 @@ func scrollIntoViewIfNeeded(pid: pid_t, point: CGPoint) async -> CGPoint {
 
     if let targetText = targetText {
         // CASE 1: We have the element's text - scroll and search by text
-        fputs("log: scrollIntoViewIfNeeded: target text=\"\(targetText)\", distance=\(distance)px, lines/step=\(linesPerStep), dir=\(scrollDirection)\n", stderr)
+        fputs(
+            "log: scrollIntoViewIfNeeded: target text=\"\(targetText)\", distance=\(distance)px, lines/step=\(linesPerStep), dir=\(scrollDirection)\n",
+            stderr)
 
         for step in 1...maxSteps {
-            guard let scrollEvent = CGEvent(scrollWheelEvent2Source: nil, units: .line, wheelCount: 1, wheel1: scrollDirection, wheel2: 0, wheel3: 0) else { return point }
+            guard
+                let scrollEvent = CGEvent(
+                    scrollWheelEvent2Source: nil, units: .line, wheelCount: 1, wheel1: scrollDirection, wheel2: 0,
+                    wheel3: 0)
+            else { return point }
             scrollEvent.location = CGPoint(x: point.x, y: windowBounds.midY)
             scrollEvent.post(tap: .cghidEventTap)
             try? await Task.sleep(nanoseconds: 100_000_000)
 
             // Cheap check first: the element we already hold (2 AX calls instead of a full tree walk)
             // Re-check text: lists that reuse rows may show a different item in the same element
-            let heldFrame = targetElement.flatMap { el in getAXElementText(el) == targetText ? getAXElementFrame(el) : nil }
+            let heldFrame = targetElement.flatMap { el in
+                getAXElementText(el) == targetText ? getAXElementFrame(el) : nil
+            }
             if let frame = heldFrame,
-               windowBounds.insetBy(dx: 0, dy: 15).contains(CGPoint(x: frame.midX, y: frame.midY)) {
-                fputs("log: scrollIntoViewIfNeeded: \"\(targetText)\" in view at \(frame) after \(step) steps\n", stderr)
+                windowBounds.insetBy(dx: 0, dy: 15).contains(CGPoint(x: frame.midX, y: frame.midY))
+            {
+                fputs(
+                    "log: scrollIntoViewIfNeeded: \"\(targetText)\" in view at \(frame) after \(step) steps\n", stderr)
                 try? await Task.sleep(nanoseconds: 100_000_000)
                 return CGPoint(x: frame.midX, y: frame.midY)
             }
 
             // Full tree search every 5th step (the app may have recreated the element),
             // or every step when the held element is gone or shows other text
-            if heldFrame == nil || step % 5 == 0, let foundCenter = findElementByText(root: windowElement, text: targetText, viewport: windowBounds) {
-                fputs("log: scrollIntoViewIfNeeded: found \"\(targetText)\" at \(foundCenter) after \(step) steps\n", stderr)
+            if heldFrame == nil || step % 5 == 0,
+                let foundCenter = findElementByText(root: windowElement, text: targetText, viewport: windowBounds)
+            {
+                fputs(
+                    "log: scrollIntoViewIfNeeded: found \"\(targetText)\" at \(foundCenter) after \(step) steps\n",
+                    stderr)
                 try? await Task.sleep(nanoseconds: 100_000_000)
                 return foundCenter
             }
         }
-        fputs("warning: scrollIntoViewIfNeeded: could not scroll \"\(targetText)\" into view after \(maxSteps) steps\n", stderr)
+        fputs(
+            "warning: scrollIntoViewIfNeeded: could not scroll \"\(targetText)\" into view after \(maxSteps) steps\n",
+            stderr)
         // Debug: final position
         if let el = targetElement, let frame = getAXElementFrame(el) {
             fputs("log: scrollIntoViewIfNeeded: final element frame=\(frame)\n", stderr)
@@ -1287,28 +1380,37 @@ func scrollIntoViewIfNeeded(pid: pid_t, point: CGPoint) async -> CGPoint {
         // Strategy: scroll proportionally to the distance, then probe near the viewport
         // edge where new content appears. As we scroll, check the bottom/top edge for
         // newly revealed elements.
-        let distance = point.y > windowBounds.maxY
+        let distance =
+            point.y > windowBounds.maxY
             ? point.y - windowBounds.maxY
             : windowBounds.minY - point.y
-        fputs("log: scrollIntoViewIfNeeded: no text at \(point), distance=\(distance)px, scrolling and probing edge\n", stderr)
+        fputs(
+            "log: scrollIntoViewIfNeeded: no text at \(point), distance=\(distance)px, scrolling and probing edge\n",
+            stderr)
 
         // Probe position: near the edge where new content scrolls in
-        let probeY = point.y > windowBounds.maxY
+        let probeY =
+            point.y > windowBounds.maxY
             ? windowBounds.maxY - 60  // probe near bottom edge
             : windowBounds.minY + 60  // probe near top edge
         let probePoint = CGPoint(x: point.x, y: probeY)
 
-        var lastText: String? = nil
+        var lastText: String?
 
         for step in 1...maxSteps {
-            guard let scrollEvent = CGEvent(scrollWheelEvent2Source: nil, units: .line, wheelCount: 1, wheel1: scrollDirection, wheel2: 0, wheel3: 0) else { return point }
+            guard
+                let scrollEvent = CGEvent(
+                    scrollWheelEvent2Source: nil, units: .line, wheelCount: 1, wheel1: scrollDirection, wheel2: 0,
+                    wheel3: 0)
+            else { return point }
             scrollEvent.location = CGPoint(x: point.x, y: windowBounds.midY)
             scrollEvent.post(tap: .cghidEventTap)
             try? await Task.sleep(nanoseconds: 150_000_000)
 
             // Probe near the viewport edge for newly revealed elements
             if let element = findAXElementAtPoint(root: windowElement, point: probePoint),
-               let text = getAXElementText(element) {
+                let text = getAXElementText(element)
+            {
                 if text != lastText {
                     fputs("log: scrollIntoViewIfNeeded: edge element after \(step) steps: \"\(text)\"\n", stderr)
                     lastText = text
@@ -1317,7 +1419,8 @@ func scrollIntoViewIfNeeded(pid: pid_t, point: CGPoint) async -> CGPoint {
 
             // Also check: has the target point come into range? (for shorter distances)
             if let element = findAXElementAtPoint(root: windowElement, point: point),
-               let text = getAXElementText(element) {
+                let text = getAXElementText(element)
+            {
                 fputs("log: scrollIntoViewIfNeeded: target appeared after \(step) steps: \"\(text)\"\n", stderr)
                 // Switch to text-based tracking
                 if let foundCenter = findElementByText(root: windowElement, text: text, viewport: windowBounds) {
@@ -1327,7 +1430,11 @@ func scrollIntoViewIfNeeded(pid: pid_t, point: CGPoint) async -> CGPoint {
                 }
                 // Nudge a few more steps
                 for step2 in 1...8 {
-                    guard let se = CGEvent(scrollWheelEvent2Source: nil, units: .line, wheelCount: 1, wheel1: scrollDirection > 0 ? linesPerStep : -linesPerStep, wheel2: 0, wheel3: 0) else { return point }
+                    guard
+                        let se = CGEvent(
+                            scrollWheelEvent2Source: nil, units: .line, wheelCount: 1,
+                            wheel1: scrollDirection > 0 ? linesPerStep : -linesPerStep, wheel2: 0, wheel3: 0)
+                    else { return point }
                     se.location = CGPoint(x: point.x, y: windowBounds.midY)
                     se.post(tap: .cghidEventTap)
                     try? await Task.sleep(nanoseconds: 150_000_000)
@@ -1358,75 +1465,140 @@ func setupAndStartServer() async throws -> Server {
     let openAppSchema: Value = .object([
         "type": .string("object"),
         "properties": .object([
-            "identifier": .object(["type": .string("string"), "description": .string("REQUIRED. App name, path, or bundle ID.")])
+            "identifier": .object([
+                "type": .string("string"), "description": .string("REQUIRED. App name, path, or bundle ID."),
+            ])
         ]),
-        "required": .array([.string("identifier")])
+        "required": .array([.string("identifier")]),
     ])
     let openAppTool = Tool(
         name: "macos-use_open_application_and_traverse",
-        description: "Opens/activates an application and then traverses its accessibility tree. Returns a summary with file path. Use Grep/Read on the file to find specific elements.",
+        description:
+            "Opens/activates an application and then traverses its accessibility tree. Returns a summary with file path. Use Grep/Read on the file to find specific elements.",
         inputSchema: openAppSchema
     )
 
     let clickSchema: Value = .object([
         "type": .string("object"),
         "properties": .object([
-            "pid": .object(["type": .string("number"), "description": .string("REQUIRED. PID of the target application window.")]),
-            "x": .object(["type": .string("number"), "description": .string("X coordinate for the click (top-left of element). Required unless 'element' is provided.")]),
-            "y": .object(["type": .string("number"), "description": .string("Y coordinate for the click (top-left of element). Required unless 'element' is provided.")]),
-            "width": .object(["type": .string("number"), "description": .string("Optional. Element width from traversal. When provided with height, click lands at center (x+width/2, y+height/2).")]),
-            "height": .object(["type": .string("number"), "description": .string("Optional. Element height from traversal. When provided with width, click lands at center (x+width/2, y+height/2).")]),
-            "element": .object(["type": .string("string"), "description": .string("Optional. Case-insensitive partial text match to find and click an element (e.g. \"Open\", \"Submit\"). Searches visible elements in the accessibility tree. First match is clicked. Alternative to x/y coordinates.")]),
-            "role": .object(["type": .string("string"), "description": .string("Optional. Filter element search by accessibility role. Common roles: AXButton, AXLink, AXTextField, AXTextArea, AXCheckBox, AXRadioButton, AXPopUpButton, AXComboBox, AXSlider, AXMenuItem, AXMenuButton, AXTab, AXStaticText, AXImage, AXGroup, AXCell, AXRow.")]),
-            "doubleClick": .object(["type": .string("boolean"), "description": .string("Optional. If true, performs a double-click instead of a single click.")]),
-            "rightClick": .object(["type": .string("boolean"), "description": .string("Optional. If true, performs a right-click (context menu) instead of a left click.")]),
-            "text": .object(["type": .string("string"), "description": .string("Optional. Text to type into the field after clicking. Combines click+type into one tool call.")]),
-            "pressKey": .object(["type": .string("string"), "description": .string("Optional. Key name to press after clicking (and typing, if 'text' is also provided). E.g. 'Return', 'Tab', 'Escape'. Combines click+type+press into one tool call.")]),
+            "pid": .object([
+                "type": .string("number"), "description": .string("REQUIRED. PID of the target application window."),
+            ]),
+            "x": .object([
+                "type": .string("number"),
+                "description": .string(
+                    "X coordinate for the click (top-left of element). Required unless 'element' is provided."),
+            ]),
+            "y": .object([
+                "type": .string("number"),
+                "description": .string(
+                    "Y coordinate for the click (top-left of element). Required unless 'element' is provided."),
+            ]),
+            "width": .object([
+                "type": .string("number"),
+                "description": .string(
+                    "Optional. Element width from traversal. When provided with height, click lands at center (x+width/2, y+height/2)."
+                ),
+            ]),
+            "height": .object([
+                "type": .string("number"),
+                "description": .string(
+                    "Optional. Element height from traversal. When provided with width, click lands at center (x+width/2, y+height/2)."
+                ),
+            ]),
+            "element": .object([
+                "type": .string("string"),
+                "description": .string(
+                    "Optional. Case-insensitive partial text match to find and click an element (e.g. \"Open\", \"Submit\"). Searches visible elements in the accessibility tree. First match is clicked. Alternative to x/y coordinates."
+                ),
+            ]),
+            "role": .object([
+                "type": .string("string"),
+                "description": .string(
+                    "Optional. Filter element search by accessibility role. Common roles: AXButton, AXLink, AXTextField, AXTextArea, AXCheckBox, AXRadioButton, AXPopUpButton, AXComboBox, AXSlider, AXMenuItem, AXMenuButton, AXTab, AXStaticText, AXImage, AXGroup, AXCell, AXRow."
+                ),
+            ]),
+            "doubleClick": .object([
+                "type": .string("boolean"),
+                "description": .string("Optional. If true, performs a double-click instead of a single click."),
+            ]),
+            "rightClick": .object([
+                "type": .string("boolean"),
+                "description": .string(
+                    "Optional. If true, performs a right-click (context menu) instead of a left click."),
+            ]),
+            "text": .object([
+                "type": .string("string"),
+                "description": .string(
+                    "Optional. Text to type into the field after clicking. Combines click+type into one tool call."),
+            ]),
+            "pressKey": .object([
+                "type": .string("string"),
+                "description": .string(
+                    "Optional. Key name to press after clicking (and typing, if 'text' is also provided). E.g. 'Return', 'Tab', 'Escape'. Combines click+type+press into one tool call."
+                ),
+            ]),
             "pressKeyModifiers": .object([
                 "type": .string("array"),
-                "description": .string("Optional. Modifier keys to hold when pressing 'pressKey' (e.g., ['Command', 'Shift']). Valid: CapsLock, Shift, Control, Option, Command, Function, NumericPad, Help."),
-                "items": .object(["type": .string("string")])
-            ])
+                "description": .string(
+                    "Optional. Modifier keys to hold when pressing 'pressKey' (e.g., ['Command', 'Shift']). Valid: CapsLock, Shift, Control, Option, Command, Function, NumericPad, Help."
+                ),
+                "items": .object(["type": .string("string")]),
+            ]),
         ]),
-        "required": .array([.string("pid")])
+        "required": .array([.string("pid")]),
     ])
     let clickTool = Tool(
         name: "macos-use_click_and_traverse",
-        description: "Simulates a click, then optionally types text and/or presses a key — all in ONE tool call. Prefer this over separate click → type → press sequences. Example: click a message field, type a message, and press Return to send — all in one call. Returns a summary with file path. Use Grep/Read on the file to find specific elements.",
+        description:
+            "Simulates a click, then optionally types text and/or presses a key — all in ONE tool call. Prefer this over separate click → type → press sequences. Example: click a message field, type a message, and press Return to send — all in one call. Returns a summary with file path. Use Grep/Read on the file to find specific elements.",
         inputSchema: clickSchema
     )
 
     let typeSchema: Value = .object([
         "type": .string("object"),
         "properties": .object([
-            "pid": .object(["type": .string("number"), "description": .string("REQUIRED. PID of the target application window.")]),
+            "pid": .object([
+                "type": .string("number"), "description": .string("REQUIRED. PID of the target application window."),
+            ]),
             "text": .object(["type": .string("string"), "description": .string("REQUIRED. Text to type.")]),
-            "pressKey": .object(["type": .string("string"), "description": .string("Optional. Key name to press after typing. E.g. 'Return', 'Tab', 'Escape'. Combines type+press into one tool call.")]),
+            "pressKey": .object([
+                "type": .string("string"),
+                "description": .string(
+                    "Optional. Key name to press after typing. E.g. 'Return', 'Tab', 'Escape'. Combines type+press into one tool call."
+                ),
+            ]),
             "pressKeyModifiers": .object([
                 "type": .string("array"),
-                "description": .string("Optional. Modifier keys to hold when pressing 'pressKey' (e.g., ['Command', 'Shift']). Valid: CapsLock, Shift, Control, Option, Command, Function, NumericPad, Help."),
-                "items": .object(["type": .string("string")])
-            ])
+                "description": .string(
+                    "Optional. Modifier keys to hold when pressing 'pressKey' (e.g., ['Command', 'Shift']). Valid: CapsLock, Shift, Control, Option, Command, Function, NumericPad, Help."
+                ),
+                "items": .object(["type": .string("string")]),
+            ]),
         ]),
-        "required": .array([.string("pid"), .string("text")])
+        "required": .array([.string("pid"), .string("text")]),
     ])
     let typeTool = Tool(
         name: "macos-use_type_and_traverse",
-        description: "Simulates typing text into the app specified by PID, then traverses its accessibility tree. Optionally presses a key after typing — all in one tool call. Returns a summary with file path. Use Grep/Read on the file to find specific elements.",
+        description:
+            "Simulates typing text into the app specified by PID, then traverses its accessibility tree. Optionally presses a key after typing — all in one tool call. Returns a summary with file path. Use Grep/Read on the file to find specific elements.",
         inputSchema: typeSchema
     )
 
     let refreshSchema: Value = .object([
         "type": .string("object"),
         "properties": .object([
-            "pid": .object(["type": .string("number"), "description": .string("REQUIRED. PID of the application to traverse.")])
-             // Add optional options here if needed later
+            "pid": .object([
+                "type": .string("number"), "description": .string("REQUIRED. PID of the application to traverse."),
+            ])
+            // Add optional options here if needed later
         ]),
-        "required": .array([.string("pid")])
+        "required": .array([.string("pid")]),
     ])
     let refreshTool = Tool(
         name: "macos-use_refresh_traversal",
-        description: "Traverses the accessibility tree of the application specified by PID. Returns a summary with file path. Use Grep/Read on the file to find specific elements.",
+        description:
+            "Traverses the accessibility tree of the application specified by PID. Returns a summary with file path. Use Grep/Read on the file to find specific elements.",
         inputSchema: refreshSchema
     )
 
@@ -1434,20 +1606,30 @@ func setupAndStartServer() async throws -> Server {
     let pressKeySchema: Value = .object([
         "type": .string("object"),
         "properties": .object([
-            "pid": .object(["type": .string("number"), "description": .string("REQUIRED. PID of the target application window.")]),
-            "keyName": .object(["type": .string("string"), "description": .string("REQUIRED. Name of the key to press (e.g., 'Return', 'Enter', 'Escape', 'Tab', 'up', 'down', 'left', 'right', 'PageUp', 'PageDown', 'Home', 'End', 'Delete', 'a', 'B'). Case-insensitive for special keys.")]),
-            "modifierFlags": .object([ // Optional array of strings
+            "pid": .object([
+                "type": .string("number"), "description": .string("REQUIRED. PID of the target application window."),
+            ]),
+            "keyName": .object([
+                "type": .string("string"),
+                "description": .string(
+                    "REQUIRED. Name of the key to press (e.g., 'Return', 'Enter', 'Escape', 'Tab', 'up', 'down', 'left', 'right', 'PageUp', 'PageDown', 'Home', 'End', 'Delete', 'a', 'B'). Case-insensitive for special keys."
+                ),
+            ]),
+            "modifierFlags": .object([  // Optional array of strings
                 "type": .string("array"),
-                "description": .string("OPTIONAL. Modifier keys to hold (e.g., ['Command', 'Shift']). Valid: CapsLock, Shift, Control, Option, Command, Function, NumericPad, Help."),
-                "items": .object(["type": .string("string")]) // Items in the array must be strings
-            ])
+                "description": .string(
+                    "OPTIONAL. Modifier keys to hold (e.g., ['Command', 'Shift']). Valid: CapsLock, Shift, Control, Option, Command, Function, NumericPad, Help."
+                ),
+                "items": .object(["type": .string("string")]),  // Items in the array must be strings
+            ]),
             // Add optional ActionOptions overrides here if needed later
         ]),
-        "required": .array([.string("pid"), .string("keyName")])
+        "required": .array([.string("pid"), .string("keyName")]),
     ])
     let pressKeyTool = Tool(
         name: "macos-use_press_key_and_traverse",
-        description: "Simulates pressing a specific key (like Return, Enter, Escape, Tab, Arrow Keys, regular characters) with optional modifiers, then traverses the accessibility tree. Returns a summary with file path. Use Grep/Read on the file to find specific elements.",
+        description:
+            "Simulates pressing a specific key (like Return, Enter, Escape, Tab, Arrow Keys, regular characters) with optional modifiers, then traverses the accessibility tree. Returns a summary with file path. Use Grep/Read on the file to find specific elements.",
         inputSchema: pressKeySchema
     )
 
@@ -1455,100 +1637,183 @@ func setupAndStartServer() async throws -> Server {
     let scrollSchema: Value = .object([
         "type": .string("object"),
         "properties": .object([
-            "pid": .object(["type": .string("number"), "description": .string("REQUIRED. PID of the target application window.")]),
-            "x": .object(["type": .string("number"), "description": .string("REQUIRED. X coordinate for the scroll location.")]),
-            "y": .object(["type": .string("number"), "description": .string("REQUIRED. Y coordinate for the scroll location.")]),
-            "deltaY": .object(["type": .string("integer"), "description": .string("REQUIRED. Vertical scroll amount in lines. Negative = scroll up (reveal content above), positive = scroll down (reveal content below).")]),
-            "deltaX": .object(["type": .string("integer"), "description": .string("Optional. Horizontal scroll amount in lines. Negative = scroll left, positive = scroll right. Defaults to 0.")])
+            "pid": .object([
+                "type": .string("number"), "description": .string("REQUIRED. PID of the target application window."),
+            ]),
+            "x": .object([
+                "type": .string("number"), "description": .string("REQUIRED. X coordinate for the scroll location."),
+            ]),
+            "y": .object([
+                "type": .string("number"), "description": .string("REQUIRED. Y coordinate for the scroll location."),
+            ]),
+            "deltaY": .object([
+                "type": .string("integer"),
+                "description": .string(
+                    "REQUIRED. Vertical scroll amount in lines. Negative = scroll up (reveal content above), positive = scroll down (reveal content below)."
+                ),
+            ]),
+            "deltaX": .object([
+                "type": .string("integer"),
+                "description": .string(
+                    "Optional. Horizontal scroll amount in lines. Negative = scroll left, positive = scroll right. Defaults to 0."
+                ),
+            ]),
         ]),
-        "required": .array([.string("pid"), .string("x"), .string("y"), .string("deltaY")])
+        "required": .array([.string("pid"), .string("x"), .string("y"), .string("deltaY")]),
     ])
     let scrollTool = Tool(
         name: "macos-use_scroll_and_traverse",
-        description: "Simulates a scroll wheel event at the given coordinates within the app specified by PID, then traverses its accessibility tree. Returns a summary with file path. Use Grep/Read on the file to find specific elements.",
+        description:
+            "Simulates a scroll wheel event at the given coordinates within the app specified by PID, then traverses its accessibility tree. Returns a summary with file path. Use Grep/Read on the file to find specific elements.",
         inputSchema: scrollSchema
     )
 
     let setValueSchema: Value = .object([
         "type": .string("object"),
         "properties": .object([
-            "pid": .object(["type": .string("number"), "description": .string("REQUIRED. PID of the target application window.")]),
-            "x": .object(["type": .string("number"), "description": .string("REQUIRED. X coordinate (top-left of element from traversal).")]),
-            "y": .object(["type": .string("number"), "description": .string("REQUIRED. Y coordinate (top-left of element from traversal).")]),
-            "width": .object(["type": .string("number"), "description": .string("Optional. Element width from traversal. When provided with height, hit-tests at center (x+width/2, y+height/2).")]),
-            "height": .object(["type": .string("number"), "description": .string("Optional. Element height from traversal. When provided with width, hit-tests at center (x+width/2, y+height/2).")]),
-            "value": .object(["type": .string("string"), "description": .string("REQUIRED. New string to write into the element via kAXValueAttribute.")])
+            "pid": .object([
+                "type": .string("number"), "description": .string("REQUIRED. PID of the target application window."),
+            ]),
+            "x": .object([
+                "type": .string("number"),
+                "description": .string("REQUIRED. X coordinate (top-left of element from traversal)."),
+            ]),
+            "y": .object([
+                "type": .string("number"),
+                "description": .string("REQUIRED. Y coordinate (top-left of element from traversal)."),
+            ]),
+            "width": .object([
+                "type": .string("number"),
+                "description": .string(
+                    "Optional. Element width from traversal. When provided with height, hit-tests at center (x+width/2, y+height/2)."
+                ),
+            ]),
+            "height": .object([
+                "type": .string("number"),
+                "description": .string(
+                    "Optional. Element height from traversal. When provided with width, hit-tests at center (x+width/2, y+height/2)."
+                ),
+            ]),
+            "value": .object([
+                "type": .string("string"),
+                "description": .string("REQUIRED. New string to write into the element via kAXValueAttribute."),
+            ]),
         ]),
-        "required": .array([.string("pid"), .string("x"), .string("y"), .string("value")])
+        "required": .array([.string("pid"), .string("x"), .string("y"), .string("value")]),
     ])
     let setValueTool = Tool(
         name: "macos-use_set_value_and_traverse",
-        description: "Writes a string into the AX element under (x,y) via kAXValueAttribute. Bypasses the input event tap entirely. Use when typing fails (Catalyst right-pane fields, sandboxed/secure-input contexts). Returns a summary with file path. Use Grep/Read on the file to find specific elements.",
+        description:
+            "Writes a string into the AX element under (x,y) via kAXValueAttribute. Bypasses the input event tap entirely. Use when typing fails (Catalyst right-pane fields, sandboxed/secure-input contexts). Returns a summary with file path. Use Grep/Read on the file to find specific elements.",
         inputSchema: setValueSchema
     )
 
     let pressAXSchema: Value = .object([
         "type": .string("object"),
         "properties": .object([
-            "pid": .object(["type": .string("number"), "description": .string("REQUIRED. PID of the target application window.")]),
-            "x": .object(["type": .string("number"), "description": .string("REQUIRED. X coordinate (top-left of element from traversal).")]),
-            "y": .object(["type": .string("number"), "description": .string("REQUIRED. Y coordinate (top-left of element from traversal).")]),
-            "width": .object(["type": .string("number"), "description": .string("Optional. Element width from traversal. When provided with height, hit-tests at center (x+width/2, y+height/2).")]),
-            "height": .object(["type": .string("number"), "description": .string("Optional. Element height from traversal. When provided with width, hit-tests at center (x+width/2, y+height/2).")])
+            "pid": .object([
+                "type": .string("number"), "description": .string("REQUIRED. PID of the target application window."),
+            ]),
+            "x": .object([
+                "type": .string("number"),
+                "description": .string("REQUIRED. X coordinate (top-left of element from traversal)."),
+            ]),
+            "y": .object([
+                "type": .string("number"),
+                "description": .string("REQUIRED. Y coordinate (top-left of element from traversal)."),
+            ]),
+            "width": .object([
+                "type": .string("number"),
+                "description": .string(
+                    "Optional. Element width from traversal. When provided with height, hit-tests at center (x+width/2, y+height/2)."
+                ),
+            ]),
+            "height": .object([
+                "type": .string("number"),
+                "description": .string(
+                    "Optional. Element height from traversal. When provided with width, hit-tests at center (x+width/2, y+height/2)."
+                ),
+            ]),
         ]),
-        "required": .array([.string("pid"), .string("x"), .string("y")])
+        "required": .array([.string("pid"), .string("x"), .string("y")]),
     ])
     let pressAXTool = Tool(
         name: "macos-use_press_ax_and_traverse",
-        description: "Performs kAXPressAction on the AX element under (x,y). Use when a synthetic mouse click is dropped (Catalyst right-pane buttons, sandboxed apps). Often the only path that actuates buttons in those apps. Returns a summary with file path. Use Grep/Read on the file to find specific elements.",
+        description:
+            "Performs kAXPressAction on the AX element under (x,y). Use when a synthetic mouse click is dropped (Catalyst right-pane buttons, sandboxed apps). Often the only path that actuates buttons in those apps. Returns a summary with file path. Use Grep/Read on the file to find specific elements.",
         inputSchema: pressAXSchema
     )
 
     let setSelectedSchema: Value = .object([
         "type": .string("object"),
         "properties": .object([
-            "pid": .object(["type": .string("number"), "description": .string("REQUIRED. PID of the target application window.")]),
-            "x": .object(["type": .string("number"), "description": .string("REQUIRED. X coordinate (top-left of element from traversal).")]),
-            "y": .object(["type": .string("number"), "description": .string("REQUIRED. Y coordinate (top-left of element from traversal).")]),
-            "width": .object(["type": .string("number"), "description": .string("Optional. Element width from traversal. When provided with height, hit-tests at center (x+width/2, y+height/2).")]),
-            "height": .object(["type": .string("number"), "description": .string("Optional. Element height from traversal. When provided with width, hit-tests at center (x+width/2, y+height/2).")]),
-            "selected": .object(["type": .string("boolean"), "description": .string("Optional. True (default) to select, false to deselect.")])
+            "pid": .object([
+                "type": .string("number"), "description": .string("REQUIRED. PID of the target application window."),
+            ]),
+            "x": .object([
+                "type": .string("number"),
+                "description": .string("REQUIRED. X coordinate (top-left of element from traversal)."),
+            ]),
+            "y": .object([
+                "type": .string("number"),
+                "description": .string("REQUIRED. Y coordinate (top-left of element from traversal)."),
+            ]),
+            "width": .object([
+                "type": .string("number"),
+                "description": .string(
+                    "Optional. Element width from traversal. When provided with height, hit-tests at center (x+width/2, y+height/2)."
+                ),
+            ]),
+            "height": .object([
+                "type": .string("number"),
+                "description": .string(
+                    "Optional. Element height from traversal. When provided with width, hit-tests at center (x+width/2, y+height/2)."
+                ),
+            ]),
+            "selected": .object([
+                "type": .string("boolean"),
+                "description": .string("Optional. True (default) to select, false to deselect."),
+            ]),
         ]),
-        "required": .array([.string("pid"), .string("x"), .string("y")])
+        "required": .array([.string("pid"), .string("x"), .string("y")]),
     ])
     let setSelectedTool = Tool(
         name: "macos-use_set_selected_and_traverse",
-        description: "Sets kAXSelectedAttribute on the AX element under (x,y). Right primitive for Catalyst table rows, sidebar list entries, outline rows, and other selection-bearing controls that expose AXSelected but no AXPress action (where regular click is dropped and press_ax errors with kAXErrorActionUnsupported). Returns a summary with file path. Use Grep/Read on the file to find specific elements.",
+        description:
+            "Sets kAXSelectedAttribute on the AX element under (x,y). Right primitive for Catalyst table rows, sidebar list entries, outline rows, and other selection-bearing controls that expose AXSelected but no AXPress action (where regular click is dropped and press_ax errors with kAXErrorActionUnsupported). Returns a summary with file path. Use Grep/Read on the file to find specific elements.",
         inputSchema: setSelectedSchema
     )
 
     // --- Aggregate list of tools ---
-    let allTools = [openAppTool, clickTool, typeTool, pressKeyTool, scrollTool, setValueTool, pressAXTool, setSelectedTool, refreshTool]
+    let allTools = [
+        openAppTool, clickTool, typeTool, pressKeyTool, scrollTool, setValueTool, pressAXTool, setSelectedTool,
+        refreshTool,
+    ]
     fputs("log: setupAndStartServer: defined \(allTools.count) tools: \(allTools.map { $0.name })\n", stderr)
 
     let server = Server(
         name: "SwiftMacOSServerDirect",
-        version: "1.6.0",
+        version: "0.1.18",  // x-release-please-version
         instructions: """
-        Every tool call returns a compact text summary. Key fields in the summary:
-        - file: path to the full accessibility tree (.txt). Use Grep/Read on the file to find specific elements.
-        - screenshot: path to a PNG screenshot of the target window. IMPORTANT: Use the Read tool on this .png file to visually verify the screen state — the accessibility tree alone can be misleading (wrong element matches, stale data, etc.).
-        - visible_elements: a sample of on-screen elements with coordinates.
+            Every tool call returns a compact text summary. Key fields in the summary:
+            - file: path to the full accessibility tree (.txt). Use Grep/Read on the file to find specific elements.
+            - screenshot: path to a PNG screenshot of the target window. IMPORTANT: Use the Read tool on this .png file to visually verify the screen state — the accessibility tree alone can be misleading (wrong element matches, stale data, etc.).
+            - visible_elements: a sample of on-screen elements with coordinates.
 
-        Always check the screenshot after interactions (click, type, press) to confirm the action had the intended visual effect.
+            Always check the screenshot after interactions (click, type, press) to confirm the action had the intended visual effect.
 
-        CRITICAL — Minimize tool calls by chaining actions:
-        - click_and_traverse supports `text` and `pressKey` params to click, type, AND press a key — all in ONE call.
-        - Example: to type into a Slack message box and send it, use ONE click_and_traverse call with element="Message to X", text="hello", pressKey="Return" — do NOT split into separate click, type, and press calls.
-        - type_and_traverse also supports `pressKey` to type and press in ONE call.
-        - ALWAYS prefer a single combined call over multiple sequential calls.
+            CRITICAL — Minimize tool calls by chaining actions:
+            - click_and_traverse supports `text` and `pressKey` params to click, type, AND press a key — all in ONE call.
+            - Example: to type into a Slack message box and send it, use ONE click_and_traverse call with element="Message to X", text="hello", pressKey="Return" — do NOT split into separate click, type, and press calls.
+            - type_and_traverse also supports `pressKey` to type and press in ONE call.
+            - ALWAYS prefer a single combined call over multiple sequential calls.
 
-        CRITICAL — Clicking elements:
-        - NEVER estimate coordinates visually from screenshots. Screenshot pixel positions do NOT match screen coordinates (they differ by the window origin offset).
-        - ALWAYS get coordinates from the accessibility tree (.txt file) or use the `element` parameter for text-based search.
-        - Each line in the .txt file has the format: [Role] "text" x:N y:N w:W h:H visible
-        - Pass these x, y, w, h values directly to click_and_traverse. The tool auto-centers the click at (x+w/2, y+h/2).
-        """,
+            CRITICAL — Clicking elements:
+            - NEVER estimate coordinates visually from screenshots. Screenshot pixel positions do NOT match screen coordinates (they differ by the window origin offset).
+            - ALWAYS get coordinates from the accessibility tree (.txt file) or use the `element` parameter for text-based search.
+            - Each line in the .txt file has the format: [Role] "text" x:N y:N w:W h:H visible
+            - Pass these x, y, w, h values directly to click_and_traverse. The tool auto-centers the click at (x+w/2, y+h/2).
+            """,
         capabilities: .init(
             tools: .init(listChanged: true)
         )
@@ -1559,7 +1824,9 @@ func setupAndStartServer() async throws -> Server {
     await server.withMethodHandler(ListTools.self) { _ in
         fputs("log: handler(ListTools): received request.\n", stderr)
         let result = ListTools.Result(tools: allTools)
-        fputs("log: handler(ListTools): responding with \(result.tools.count) tools: \(result.tools.map { $0.name })\n", stderr)
+        fputs(
+            "log: handler(ListTools): responding with \(result.tools.count) tools: \(result.tools.map { $0.name })\n",
+            stderr)
         return result
     }
     fputs("log: setupAndStartServer: registered ListTools handler.\n", stderr)
@@ -1570,14 +1837,15 @@ func setupAndStartServer() async throws -> Server {
         fputs("log: handler(CallTool): argument keys: \(params.arguments?.keys.sorted() ?? [])\n", stderr)
 
         // Declared outside `do` so they're accessible in `catch InputGuardCancelled`
-        var savedFrontmostApp: NSRunningApplication? = nil
-        var savedCursorPos: CGPoint? = nil
+        var savedFrontmostApp: NSRunningApplication?
+        var savedCursorPos: CGPoint?
 
         do {
             // --- Determine Action and Options from MCP Params ---
             let primaryAction: PrimaryAction
-            var lastClickPoint: CGPoint? = nil // Track click location for screenshot annotation
-            var options = ActionOptions(traverseAfter: true, showAnimation: false) // MCP tools should return the tree by default, no visual highlighting
+            var lastClickPoint: CGPoint?  // Track click location for screenshot annotation
+            // MCP tools should return the tree by default, no visual highlighting
+            var options = ActionOptions(traverseAfter: true, showAnimation: false)
 
             // PID is required for click, type, press, refresh
             // Optional only for open (where SDK finds it)
@@ -1587,7 +1855,9 @@ func setupAndStartServer() async throws -> Server {
             let pidForOptions: pid_t?
             if let unwrappedPid = pidOptionalInt {
                 guard let convertedPid = pid_t(exactly: unwrappedPid) else {
-                    fputs("error: handler(CallTool): PID value \(unwrappedPid) is out of range for pid_t (Int32).\n", stderr)
+                    fputs(
+                        "error: handler(CallTool): PID value \(unwrappedPid) is out of range for pid_t (Int32).\n",
+                        stderr)
                     throw MCPError.invalidParams("PID value \(unwrappedPid) is out of range.")
                 }
                 pidForOptions = convertedPid
@@ -1597,17 +1867,22 @@ func setupAndStartServer() async throws -> Server {
             options.pidForTraversal = pidForOptions
 
             // Potentially allow overriding default options from params
-            options.traverseBefore = try getOptionalBool(from: params.arguments, key: "traverseBefore") ?? options.traverseBefore
-            options.traverseAfter = try getOptionalBool(from: params.arguments, key: "traverseAfter") ?? options.traverseAfter
+            options.traverseBefore =
+                try getOptionalBool(from: params.arguments, key: "traverseBefore") ?? options.traverseBefore
+            options.traverseAfter =
+                try getOptionalBool(from: params.arguments, key: "traverseAfter") ?? options.traverseAfter
             options.showDiff = try getOptionalBool(from: params.arguments, key: "showDiff") ?? options.showDiff
-            options.onlyVisibleElements = try getOptionalBool(from: params.arguments, key: "onlyVisibleElements") ?? options.onlyVisibleElements
-            options.showAnimation = try getOptionalBool(from: params.arguments, key: "showAnimation") ?? options.showAnimation
-            options.animationDuration = try getOptionalDouble(from: params.arguments, key: "animationDuration") ?? options.animationDuration
-            options.delayAfterAction = try getOptionalDouble(from: params.arguments, key: "delayAfterAction") ?? options.delayAfterAction
+            options.onlyVisibleElements =
+                try getOptionalBool(from: params.arguments, key: "onlyVisibleElements") ?? options.onlyVisibleElements
+            options.showAnimation =
+                try getOptionalBool(from: params.arguments, key: "showAnimation") ?? options.showAnimation
+            options.animationDuration =
+                try getOptionalDouble(from: params.arguments, key: "animationDuration") ?? options.animationDuration
+            options.delayAfterAction =
+                try getOptionalDouble(from: params.arguments, key: "delayAfterAction") ?? options.delayAfterAction
 
-             options = options.validated()
-             fputs("log: handler(CallTool): constructed ActionOptions: \(options)\n", stderr)
-
+            options = options.validated()
+            fputs("log: handler(CallTool): constructed ActionOptions: \(options)\n", stderr)
 
             // Track whether this tool returns a diff (click/type/press) or full traversal (open/refresh)
             var hasDiff = false
@@ -1621,7 +1896,9 @@ func setupAndStartServer() async throws -> Server {
                 primaryAction = .open(identifier: identifier)
 
             case clickTool.name:
-                guard let reqPid = pidForOptions else { throw MCPError.invalidParams("Missing required 'pid' for click tool") }
+                guard let reqPid = pidForOptions else {
+                    throw MCPError.invalidParams("Missing required 'pid' for click tool")
+                }
 
                 let elementSearch = params.arguments?["element"]?.stringValue
                 let roleFilter = params.arguments?["role"]?.stringValue
@@ -1629,7 +1906,9 @@ func setupAndStartServer() async throws -> Server {
                 let rawPoint: CGPoint
                 if let elementSearch = elementSearch {
                     // --- Search mode: find element by text match ---
-                    fputs("log: click_and_traverse: searching for element '\(elementSearch)' (role: \(roleFilter ?? "any"))\n", stderr)
+                    fputs(
+                        "log: click_and_traverse: searching for element '\(elementSearch)' (role: \(roleFilter ?? "any"))\n",
+                        stderr)
                     let traversal: ResponseData = try await Task { @MainActor in
                         return try traverseAccessibilityTree(pid: reqPid)
                     }.value
@@ -1641,17 +1920,26 @@ func setupAndStartServer() async throws -> Server {
 
                     guard let match = matches.first else {
                         let roleHint = roleFilter != nil ? " with role '\(roleFilter!)'" : ""
-                        throw MCPError.invalidParams("No visible element matching '\(elementSearch)'\(roleHint) found in app (PID \(reqPid)). Use the traversal file to find available elements.")
+                        throw MCPError.invalidParams(
+                            "No visible element matching '\(elementSearch)'\(roleHint) found in app (PID \(reqPid)). Use the traversal file to find available elements."
+                        )
                     }
-                    let matchX = match.x!, matchY = match.y!, matchW = match.width!, matchH = match.height!
+                    let matchX = match.x!
+                    let matchY = match.y!
+                    let matchW = match.width!
+                    let matchH = match.height!
                     rawPoint = CGPoint(x: matchX + matchW / 2, y: matchY + matchH / 2)
                     let matchCount = matches.count
-                    fputs("log: click_and_traverse: found \(matchCount) match(es) for '\(elementSearch)'. Clicking '\(match.text ?? "")' [\(match.role)] at center (\(rawPoint.x),\(rawPoint.y))\n", stderr)
+                    fputs(
+                        "log: click_and_traverse: found \(matchCount) match(es) for '\(elementSearch)'. Clicking '\(match.text ?? "")' [\(match.role)] at center (\(rawPoint.x),\(rawPoint.y))\n",
+                        stderr)
                 } else {
                     // --- Coordinate mode ---
                     guard let x = try getOptionalDouble(from: params.arguments, key: "x"),
-                          let y = try getOptionalDouble(from: params.arguments, key: "y") else {
-                        throw MCPError.invalidParams("Either 'element' or both 'x' and 'y' must be provided for click tool")
+                        let y = try getOptionalDouble(from: params.arguments, key: "y")
+                    else {
+                        throw MCPError.invalidParams(
+                            "Either 'element' or both 'x' and 'y' must be provided for click tool")
                     }
                     rawPoint = try hitPoint(from: params.arguments)
                     fputs("log: click_and_traverse: (\(x),\(y)) → click point \(rawPoint)\n", stderr)
@@ -1672,7 +1960,7 @@ func setupAndStartServer() async throws -> Server {
                     primaryAction = .input(action: .click(point: adjustedPoint))
                 }
                 options.pidForTraversal = reqPid
-                options.showDiff = true // enables traverseBefore automatically
+                options.showDiff = true  // enables traverseBefore automatically
                 hasDiff = true
 
                 // Optional chained actions: type text and/or press a key after the click
@@ -1685,7 +1973,9 @@ func setupAndStartServer() async throws -> Server {
                 }
 
             case typeTool.name:
-                guard let reqPid = pidForOptions else { throw MCPError.invalidParams("Missing required 'pid' for type tool") }
+                guard let reqPid = pidForOptions else {
+                    throw MCPError.invalidParams("Missing required 'pid' for type tool")
+                }
                 let text = try getRequiredString(from: params.arguments, key: "text")
                 primaryAction = .input(action: .type(text: text))
                 options.pidForTraversal = reqPid
@@ -1699,7 +1989,9 @@ func setupAndStartServer() async throws -> Server {
                 }
 
             case pressKeyTool.name:
-                guard let reqPid = pidForOptions else { throw MCPError.invalidParams("Missing required 'pid' for press key tool") }
+                guard let reqPid = pidForOptions else {
+                    throw MCPError.invalidParams("Missing required 'pid' for press key tool")
+                }
                 let keyName = try getRequiredString(from: params.arguments, key: "keyName")
                 let flags = try parseFlags(from: params.arguments?["modifierFlags"])
                 fputs("log: handler(CallTool): parsed modifierFlags: \(flags)\n", stderr)
@@ -1709,20 +2001,25 @@ func setupAndStartServer() async throws -> Server {
                 hasDiff = true
 
             case scrollTool.name:
-                guard let reqPid = pidForOptions else { throw MCPError.invalidParams("Missing required 'pid' for scroll tool") }
+                guard let reqPid = pidForOptions else {
+                    throw MCPError.invalidParams("Missing required 'pid' for scroll tool")
+                }
                 let x = try getRequiredDouble(from: params.arguments, key: "x")
                 let y = try getRequiredDouble(from: params.arguments, key: "y")
                 let deltaY = try getRequiredInt(from: params.arguments, key: "deltaY")
                 let deltaX = try getOptionalInt(from: params.arguments, key: "deltaX") ?? 0
                 let scrollPoint = CGPoint(x: x, y: y)
                 await activateApp(pid: reqPid)
-                primaryAction = .input(action: .scroll(point: scrollPoint, deltaY: Int32(deltaY), deltaX: Int32(deltaX)))
+                primaryAction = .input(
+                    action: .scroll(point: scrollPoint, deltaY: Int32(deltaY), deltaX: Int32(deltaX)))
                 options.pidForTraversal = reqPid
                 options.showDiff = true
                 hasDiff = true
 
             case setValueTool.name:
-                guard let reqPid = pidForOptions else { throw MCPError.invalidParams("Missing required 'pid' for set value tool") }
+                guard let reqPid = pidForOptions else {
+                    throw MCPError.invalidParams("Missing required 'pid' for set value tool")
+                }
                 let point = try hitPoint(from: params.arguments)
                 let value = try getRequiredString(from: params.arguments, key: "value")
                 await activateApp(pid: reqPid)
@@ -1733,7 +2030,9 @@ func setupAndStartServer() async throws -> Server {
                 hasDiff = true
 
             case pressAXTool.name:
-                guard let reqPid = pidForOptions else { throw MCPError.invalidParams("Missing required 'pid' for AX press tool") }
+                guard let reqPid = pidForOptions else {
+                    throw MCPError.invalidParams("Missing required 'pid' for AX press tool")
+                }
                 let point = try hitPoint(from: params.arguments)
                 await activateApp(pid: reqPid)
                 lastClickPoint = point
@@ -1743,7 +2042,9 @@ func setupAndStartServer() async throws -> Server {
                 hasDiff = true
 
             case setSelectedTool.name:
-                guard let reqPid = pidForOptions else { throw MCPError.invalidParams("Missing required 'pid' for set selected tool") }
+                guard let reqPid = pidForOptions else {
+                    throw MCPError.invalidParams("Missing required 'pid' for set selected tool")
+                }
                 let point = try hitPoint(from: params.arguments)
                 let selected = try getOptionalBool(from: params.arguments, key: "selected") ?? true
                 await activateApp(pid: reqPid)
@@ -1754,12 +2055,16 @@ func setupAndStartServer() async throws -> Server {
                 hasDiff = true
 
             case refreshTool.name:
-                guard let reqPid = pidForOptions else { throw MCPError.invalidParams("Missing required 'pid' for refresh tool") }
+                guard let reqPid = pidForOptions else {
+                    throw MCPError.invalidParams("Missing required 'pid' for refresh tool")
+                }
                 primaryAction = .traverseOnly
                 options.pidForTraversal = reqPid
 
             default:
-                fputs("error: handler(CallTool): received request for unknown or unsupported tool: \(params.name)\n", stderr)
+                fputs(
+                    "error: handler(CallTool): received request for unknown or unsupported tool: \(params.name)\n",
+                    stderr)
                 throw MCPError.methodNotFound(params.name)
             }
 
@@ -1772,7 +2077,9 @@ func setupAndStartServer() async throws -> Server {
                 let nsPos = NSEvent.mouseLocation
                 if let primaryScreen = NSScreen.screens.first {
                     savedCursorPos = CGPoint(x: nsPos.x, y: primaryScreen.frame.height - nsPos.y)
-                    fputs("log: handler(CallTool): saved cursor \(savedCursorPos!) and frontmost app '\(savedFrontmostApp?.localizedName ?? "nil")' (PID \(savedFrontmostApp?.processIdentifier ?? 0))\n", stderr)
+                    fputs(
+                        "log: handler(CallTool): saved cursor \(savedCursorPos!) and frontmost app '\(savedFrontmostApp?.localizedName ?? "nil")' (PID \(savedFrontmostApp?.processIdentifier ?? 0))\n",
+                        stderr)
                 }
 
                 // Engage input guard — block user input and show overlay
@@ -1817,7 +2124,9 @@ func setupAndStartServer() async throws -> Server {
                 if isDisruptive { try InputGuard.shared.throwIfCancelled() }
             } else {
                 // Composed multi-action path: click → type? → press? → final traversal
-                fputs("log: handler(CallTool): composed mode — \(additionalActions.count) additional action(s) after primary.\n", stderr)
+                fputs(
+                    "log: handler(CallTool): composed mode — \(additionalActions.count) additional action(s) after primary.\n",
+                    stderr)
 
                 // Step 1: Primary action with before traversal only (no after)
                 var primaryOpts = options
@@ -1834,11 +2143,12 @@ func setupAndStartServer() async throws -> Server {
                 minOpts.pidForTraversal = options.pidForTraversal
                 var additionalResults: [ActionResult] = []
                 for additionalAction in additionalActions {
-                    try? await Task.sleep(nanoseconds: 100_000_000) // 100ms between actions
+                    try? await Task.sleep(nanoseconds: 100_000_000)  // 100ms between actions
                     if isDisruptive { try InputGuard.shared.throwIfCancelled() }
-                    additionalResults.append(await Task { @MainActor in
-                        return await performAction(action: .input(action: additionalAction), optionsInput: minOpts)
-                    }.value)
+                    additionalResults.append(
+                        await Task { @MainActor in
+                            return await performAction(action: .input(action: additionalAction), optionsInput: minOpts)
+                        }.value)
                     fputs("log: handler(CallTool): composed — additional action done.\n", stderr)
                 }
                 if isDisruptive { try InputGuard.shared.throwIfCancelled() }
@@ -1853,14 +2163,15 @@ func setupAndStartServer() async throws -> Server {
 
                 // No diff in composed mode (before/after still present for context)
                 hasDiff = false
-                actionResult = mergeComposedResults(primary: primaryResult, additional: additionalResults, final: finalResult)
+                actionResult = mergeComposedResults(
+                    primary: primaryResult, additional: additionalResults, final: finalResult)
             }
 
             // --- Disengage input guard and check for late cancellation ---
             if isDisruptive {
                 // Small delay to give user time to press Esc after the action completes
                 // but before we check for cancellation
-                try? await Task.sleep(nanoseconds: 200_000_000) // 200ms grace period
+                try? await Task.sleep(nanoseconds: 200_000_000)  // 200ms grace period
                 let wasCancelled = InputGuard.shared.wasCancelled
                 InputGuard.shared.disengage()
                 fputs("log: handler(CallTool): InputGuard wasCancelled=\(wasCancelled)\n", stderr)
@@ -1874,8 +2185,10 @@ func setupAndStartServer() async throws -> Server {
 
             // --- Restore cursor position ---
             if let pos = savedCursorPos,
-               let moveEvent = CGEvent(mouseEventSource: nil, mouseType: .mouseMoved,
-                                       mouseCursorPosition: pos, mouseButton: .left) {
+                let moveEvent = CGEvent(
+                    mouseEventSource: nil, mouseType: .mouseMoved,
+                    mouseCursorPosition: pos, mouseButton: .left)
+            {
                 moveEvent.post(tap: .cghidEventTap)
                 fputs("log: handler(CallTool): restored cursor to \(pos)\n", stderr)
             }
@@ -1885,7 +2198,9 @@ func setupAndStartServer() async throws -> Server {
                 let currentFrontmost = NSWorkspace.shared.frontmostApplication
                 if currentFrontmost?.processIdentifier != prevApp.processIdentifier {
                     prevApp.activate(options: [])
-                    fputs("log: handler(CallTool): restored focus to '\(prevApp.localizedName ?? "")' (PID \(prevApp.processIdentifier))\n", stderr)
+                    fputs(
+                        "log: handler(CallTool): restored focus to '\(prevApp.localizedName ?? "")' (PID \(prevApp.processIdentifier))\n",
+                        stderr)
                 }
             }
 
@@ -1897,7 +2212,9 @@ func setupAndStartServer() async throws -> Server {
             if isInputAction, let originalPid = options.pidForTraversal {
                 if let newPid = frontmostAfterAction?.processIdentifier, newPid != originalPid {
                     let frontmostName = frontmostAfterAction?.localizedName ?? "Unknown"
-                    fputs("log: handler(CallTool): app switch detected! Original PID \(originalPid) -> new frontmost PID \(newPid) (\(frontmostName))\n", stderr)
+                    fputs(
+                        "log: handler(CallTool): app switch detected! Original PID \(originalPid) -> new frontmost PID \(newPid) (\(frontmostName))\n",
+                        stderr)
                     toolResponse.appSwitchPid = newPid
                     toolResponse.appSwitchAppName = frontmostName
 
@@ -1906,48 +2223,63 @@ func setupAndStartServer() async throws -> Server {
                         let newTraversal: ResponseData = try await Task { @MainActor in
                             return try traverseAccessibilityTree(pid: newPid)
                         }.value
-                        let newWindowBounds = getWindowBoundsFromTraversal(newTraversal)
+                        let newWindowBounds =
+                            getWindowBoundsFromTraversal(newTraversal)
                             ?? getWindowBoundsFromAPI(pid: newPid)
-                        toolResponse.appSwitchTraversal = enrichResponseData(newTraversal, windowBounds: newWindowBounds)
-                        fputs("log: handler(CallTool): traversed new frontmost app \(frontmostName) (PID \(newPid)): \(newTraversal.elements.count) elements\n", stderr)
+                        toolResponse.appSwitchTraversal = enrichResponseData(
+                            newTraversal, windowBounds: newWindowBounds)
+                        fputs(
+                            "log: handler(CallTool): traversed new frontmost app \(frontmostName) (PID \(newPid)): \(newTraversal.elements.count) elements\n",
+                            stderr)
                     } catch {
-                        fputs("warning: handler(CallTool): failed to traverse new frontmost app \(frontmostName) (PID \(newPid)): \(error)\n", stderr)
+                        fputs(
+                            "warning: handler(CallTool): failed to traverse new frontmost app \(frontmostName) (PID \(newPid)): \(error)\n",
+                            stderr)
                     }
                 }
             }
             let resultTextString = buildFlatTextResponse(toolResponse)
 
             // --- Determine if it was an error overall ---
-            let isError = actionResult.primaryActionError != nil ||
-                          (options.traverseBefore && actionResult.traversalBeforeError != nil) ||
-                          (options.traverseAfter && actionResult.traversalAfterError != nil)
+            let isError =
+                actionResult.primaryActionError != nil
+                || (options.traverseBefore && actionResult.traversalBeforeError != nil)
+                || (options.traverseAfter && actionResult.traversalAfterError != nil)
 
             if isError {
-                 fputs("warning: handler(CallTool): Action resulted in an error state (primary: \(actionResult.primaryActionError ?? "nil"), before: \(actionResult.traversalBeforeError ?? "nil"), after: \(actionResult.traversalAfterError ?? "nil")).\n", stderr)
+                fputs(
+                    "warning: handler(CallTool): Action resulted in an error state (primary: \(actionResult.primaryActionError ?? "nil"), before: \(actionResult.traversalBeforeError ?? "nil"), after: \(actionResult.traversalAfterError ?? "nil")).\n",
+                    stderr)
             }
 
             // --- Write flat text to file, return compact summary ---
             let outputDir = responseOutputDir
             try prepareOutputDirectory(outputDir)
 
-            let timestamp = Int(Date().timeIntervalSince1970 * 1000) // ms precision to avoid collisions
+            let timestamp = Int(Date().timeIntervalSince1970 * 1000)  // ms precision to avoid collisions
             let safeName = params.name.replacingOccurrences(of: "macos-use_", with: "")
             let filename = "\(timestamp)_\(safeName).txt"
             let filepath = "\(outputDir)/\(filename)"
             try? resultTextString.write(toFile: filepath, atomically: true, encoding: .utf8)
-            fputs("log: handler(CallTool): wrote full response to \(filepath) (\(resultTextString.utf8.count) bytes)\n", stderr)
+            fputs(
+                "log: handler(CallTool): wrote full response to \(filepath) (\(resultTextString.utf8.count) bytes)\n",
+                stderr)
 
             // --- Capture window screenshot ---
-            var screenshotPath: String? = nil
+            var screenshotPath: String?
             let screenshotFilename = "\(timestamp)_\(safeName).png"
             let screenshotFilepath = "\(outputDir)/\(screenshotFilename)"
             // Use the effective PID (could be app-switched)
             let screenshotPid = toolResponse.appSwitchPid ?? toolResponse.traversalPid ?? options.pidForTraversal
             if let pid = screenshotPid {
-                screenshotPath = captureWindowScreenshot(pid: pid, outputPath: screenshotFilepath, clickPoint: lastClickPoint, traversalWindowBounds: toolResponse.windowBounds)
+                screenshotPath = captureWindowScreenshot(
+                    pid: pid, outputPath: screenshotFilepath, clickPoint: lastClickPoint,
+                    traversalWindowBounds: toolResponse.windowBounds)
             }
 
-            let summary = buildCompactSummary(toolName: params.name, params: params, toolResponse: toolResponse, filepath: filepath, fileSize: resultTextString.utf8.count, screenshotPath: screenshotPath)
+            let summary = buildCompactSummary(
+                toolName: params.name, params: params, toolResponse: toolResponse, filepath: filepath,
+                fileSize: resultTextString.utf8.count, screenshotPath: screenshotPath)
             fputs("log: handler(CallTool): returning compact summary (\(summary.count) chars)\n", stderr)
 
             return .init(content: [.text(text: summary, annotations: nil, _meta: nil)], isError: isError)
@@ -1958,25 +2290,43 @@ func setupAndStartServer() async throws -> Server {
             InputGuard.shared.disengage()
             // Restore cursor
             if let pos = savedCursorPos,
-               let moveEvent = CGEvent(mouseEventSource: nil, mouseType: .mouseMoved,
-                                       mouseCursorPosition: pos, mouseButton: .left) {
+                let moveEvent = CGEvent(
+                    mouseEventSource: nil, mouseType: .mouseMoved,
+                    mouseCursorPosition: pos, mouseButton: .left)
+            {
                 moveEvent.post(tap: .cghidEventTap)
             }
             // Restore frontmost app
             if let prevApp = savedFrontmostApp, !prevApp.isTerminated {
                 prevApp.activate(options: [])
             }
-            return .init(content: [.text(text: "Cancelled: user pressed Esc to abort '\(params.name)'.", annotations: nil, _meta: nil)], isError: true)
+            return .init(
+                content: [
+                    .text(text: "Cancelled: user pressed Esc to abort '\(params.name)'.", annotations: nil, _meta: nil)
+                ], isError: true)
         } catch let error as MCPError {
-             fputs("error: handler(CallTool): MCPError occurred processing MCP params for tool '\(params.name)': \(error)\n", stderr)
-             return .init(content: [.text(text: "Error processing parameters for tool '\(params.name)': \(error.localizedDescription)", annotations: nil, _meta: nil)], isError: true)
+            fputs(
+                "error: handler(CallTool): MCPError occurred processing MCP params for tool '\(params.name)': \(error)\n",
+                stderr)
+            return .init(
+                content: [
+                    .text(
+                        text: "Error processing parameters for tool '\(params.name)': \(error.localizedDescription)",
+                        annotations: nil, _meta: nil)
+                ], isError: true)
         } catch {
-             fputs("error: handler(CallTool): Unexpected error occurred setting up call for tool '\(params.name)': \(error)\n", stderr)
-             return .init(content: [.text(text: "Unexpected setup error executing tool '\(params.name)': \(error.localizedDescription)", annotations: nil, _meta: nil)], isError: true)
+            fputs(
+                "error: handler(CallTool): Unexpected error occurred setting up call for tool '\(params.name)': \(error)\n",
+                stderr)
+            return .init(
+                content: [
+                    .text(
+                        text: "Unexpected setup error executing tool '\(params.name)': \(error.localizedDescription)",
+                        annotations: nil, _meta: nil)
+                ], isError: true)
         }
     }
     fputs("log: setupAndStartServer: registered CallTool handler.\n", stderr)
-
 
     // --- Transport and Start ---
     let transport = StdioTransport()
@@ -2010,19 +2360,19 @@ struct MCPServer {
             fputs("log: main: setupAndStartServer() successful, server instance obtained.\n", stderr)
 
             fputs("log: main: server started, calling server.waitUntilCompleted()...\n", stderr)
-            await server.waitUntilCompleted() // Waits until the server loop finishes/errors
+            await server.waitUntilCompleted()  // Waits until the server loop finishes/errors
             fputs("log: main: server.waitUntilCompleted() returned. Server has stopped.\n", stderr)
 
         } catch {
             fputs("error: main: server setup or run failed: \(error)\n", stderr)
             if let mcpError = error as? MCPError {
-                 fputs("error: main: MCPError details: \(mcpError.localizedDescription)\n", stderr)
-             }
+                fputs("error: main: MCPError details: \(mcpError.localizedDescription)\n", stderr)
+            }
             // Consider more specific exit codes if useful
-            exit(1) // Exit with error code
+            exit(1)  // Exit with error code
         }
 
         fputs("log: main: Server processing finished gracefully. Exiting.\n", stderr)
-        exit(0) // Exit cleanly
+        exit(0)  // Exit cleanly
     }
 }

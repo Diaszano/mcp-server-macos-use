@@ -1,0 +1,62 @@
+included:
+  - Sources
+  - Tests
+
+excluded:
+  - .build
+  - .worktree
+  - .worktrees
+  - build
+
+# Rules handled by swift-format or too noisy for this codebase
+disabled_rules:
+  - trailing_comma
+  - opening_brace
+  - vertical_parameter_alignment
+  - multiple_closures_with_trailing_closure
+  - line_length
+  - trailing_whitespace
+  - vertical_whitespace
+  - switch_case_alignment
+  - statement_position
+  - colon
+  - comma
+  - control_statement
+  - return_arrow_whitespace
+  - syntactic_sugar
+  - type_body_length
+  - file_length
+  - function_body_length
+  - cyclomatic_complexity
+  - large_tuple
+  - nesting
+  - optional_data_string_conversion
+  # AX and CoreFoundation types can only be bridged with as!
+  - force_cast
+
+opt_in_rules:
+  - empty_count
+  - first_where
+  - sorted_first_last
+
+identifier_name:
+  min_length:
+    warning: 1
+    error: 1
+  max_length:
+    warning: 60
+    error: 80
+
+type_name:
+  min_length:
+    warning: 2
+    error: 1
+  max_length:
+    warning: 60
+    error: 80
+
+function_parameter_count:
+  warning: 8
+  error: 10
+
+force_try: warning

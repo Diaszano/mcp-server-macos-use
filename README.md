@@ -63,6 +63,29 @@ These can potentially be passed in the `arguments` object for any tool call to o
 
 *   `MacosUseSDK` (Assumed local or external Swift package providing macOS control functionality)
 
+## Installation (Homebrew)
+
+```bash
+brew install diaszano/tap/mcp-server-macos-use
+```
+
+Then point your MCP client at `mcp-server-macos-use` (on `PATH`, or `$(brew --prefix)/bin/mcp-server-macos-use`).
+
+## Development
+
+Requires Xcode and [mise](https://mise.jdx.dev), which pins the other dev tools (SwiftLint) in `mise.toml`.
+
+```bash
+mise install  # install pinned dev tools
+make hooks    # enable git hooks: pre-commit (branch name, swift-format, SwiftLint), commit-msg, pre-push
+make fmt      # format Sources and Tests with swift-format
+make verify   # fmt-check + lint + test (what CI runs)
+```
+
+- **Branches** follow [Conventional Branch](https://conventional-branch.github.io/): `feat/...`, `fix/...`, `chore/...` (see `scripts/verify-branch.sh`).
+- **Commits and PR titles** follow [Conventional Commits](https://www.conventionalcommits.org/).
+- **Releases** are automated: release-please opens a release PR from the commits on `main`; merging it tags the version, uploads universal binaries to the GitHub release and updates the formula in [Diaszano/homebrew-tap](https://github.com/Diaszano/homebrew-tap).
+
 ## Building and Running
 
 ```bash

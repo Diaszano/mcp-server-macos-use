@@ -1,0 +1,12 @@
+#!/bin/sh
+# .githooks/pre-push
+# Blocks pushing branches that do not follow Conventional Branch naming.
+
+TOPLEVEL="$(git rev-parse --show-toplevel)"
+FAILED=0
+while read -r LOCAL_REF _ REMOTE_REF _; do
+    case "$REMOTE_REF" in
+        refs/heads/*) sh "$TOPLEVEL/scripts/verify-branch.sh" "${REMOTE_REF#refs/heads/}" || FAILED=1 ;;
+    esac
+done
+exit $FAILED

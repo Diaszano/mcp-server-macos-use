@@ -1,0 +1,12 @@
+name: Setup Xcode
+description: Select the newest Xcode installed on the runner
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: |
+        XCODE="$(ls -d /Applications/Xcode*.app | sort -V | tail -n 1)"
+        sudo xcode-select -s "$XCODE/Contents/Developer"
+        echo "DEVELOPER_DIR=$XCODE/Contents/Developer" >> "$GITHUB_ENV"
+        xcodebuild -version
+        swift --version

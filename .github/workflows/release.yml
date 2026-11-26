@@ -1,0 +1,118 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing release tag to rebuild and republish (e.g. v0.2.0)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release-please:
+    name: Release Please
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    outputs:
+      release_created: ${{ steps.rp.outputs.release_created }}
+      tag: ${{ steps.rp.outputs.tag_name }}
+    steps:
+      - id: rp
+        uses: googleapis/release-please-action@v4
+        with:
+          # PAT so the release PR triggers CI and the merge re-triggers this workflow.
+          token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+      - name: Enable auto-merge on release PR
+        if: steps.rp.outputs.pr
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+          PR: ${{ fromJSON(steps.rp.outputs.pr).number }}
+        run: gh pr merge "$PR" --repo "$GITHUB_REPOSITORY" --auto --squash
+
+  publish:
+    name: Build, Upload & Publish Homebrew Formula
+    needs: release-please
+    if: always() && (needs.release-please.outputs.release_created == 'true' || github.event_name == 'workflow_dispatch')
+    runs-on: macos-latest
+    timeout-minutes: 60
+    permissions:
+      contents: write
+    env:
+      TAG: ${{ needs.release-please.outputs.tag || inputs.tag }}
+      HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+    steps:
+      - name: Require Homebrew tap credentials
+        run: |
+          if [ -z "$HOMEBREW_TAP_TOKEN" ]; then
+            echo "::error::HOMEBREW_TAP_TOKEN is required to publish Formula/mcp-server-macos-use.rb to Diaszano/homebrew-tap"
+            exit 1
+          fi
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+
+      - uses: ./.github/actions/setup-xcode
+
+      - uses: jdx/mise-action@v2
+
+      - name: Verify before release
+        run: make verify
+
+      - name: Build universal binaries & archive
+        id: build
+        run: |
+          VERSION="${TAG#v}"
+          make dist VERSION="$VERSION" SWIFT_FLAGS="--arch arm64 --arch x86_64"
+          TARBALL="build/mcp-server-macos-use-$VERSION.tar.gz"
+          SHA="$(shasum -a 256 "$TARBALL" | cut -d' ' -f1)"
+          printf '%s  %s\n' "$SHA" "mcp-server-macos-use-$VERSION.tar.gz" > build/SHA256SUMS
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "sha256=$SHA" >> "$GITHUB_OUTPUT"
+          echo "tarball=$TARBALL" >> "$GITHUB_OUTPUT"
+
+      - name: Upload release assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TARBALL="${{ steps.build.outputs.tarball }}"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$TARBALL" build/SHA256SUMS --clobber
+          else
+            gh release create "$TAG" "$TARBALL" build/SHA256SUMS --title "$TAG" --generate-notes
+          fi
+
+      - name: Checkout Diaszano/homebrew-tap
+        uses: actions/checkout@v4
+        with:
+          repository: Diaszano/homebrew-tap
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          path: homebrew-tap
+
+      - name: Update Formula/mcp-server-macos-use.rb in homebrew-tap
+        run: |
+          VERSION="${{ steps.build.outputs.version }}"
+          ./scripts/generate-formula.sh "$VERSION" "${{ steps.build.outputs.sha256 }}" homebrew-tap/Formula/mcp-server-macos-use.rb
+          ruby -c homebrew-tap/Formula/mcp-server-macos-use.rb
+          cd homebrew-tap
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Formula/mcp-server-macos-use.rb
+          if git diff --cached --quiet; then
+            echo "Formula/mcp-server-macos-use.rb is already up to date."
+          else
+            git commit -m "chore(formula): update mcp-server-macos-use to v$VERSION"
+            git push origin HEAD:main
+          fi
