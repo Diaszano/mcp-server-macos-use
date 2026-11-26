@@ -10,6 +10,8 @@ xcrun --toolchain com.apple.dt.toolchain.XcodeDefault swift build 2>&1 | tail -5
 
 Do NOT wait for the user to build. Rebuild, check for errors, fix if needed.
 
+Before committing, run `make fmt` and `make verify` (swift-format check, SwiftLint, tests — the same checks CI runs). Enable the git hooks once with `make hooks`.
+
 ## Testing MCP Changes
 
 **IMPORTANT: After rebuilding, do NOT call MCP tools (e.g. `mcp__macos-use__*`) directly.** Claude Code's MCP connection still points at the old server process. You must either:
