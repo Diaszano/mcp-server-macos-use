@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.20](https://github.com/Diaszano/mcp-server-macos-use/compare/v0.1.19...v0.1.20) (2026-11-26)
+
+
+### Fixed
+
+* **ci:** skip release PR auto-merge when no PR was created ([#4](https://github.com/Diaszano/mcp-server-macos-use/issues/4)) ([e031730](https://github.com/Diaszano/mcp-server-macos-use/commit/e03173005e6ba6becc5bf05d2be431602b1b476f))
+
 ## [0.1.19](https://github.com/Diaszano/mcp-server-macos-use/compare/v0.1.18...v0.1.19) (2026-11-26)
 
 
