@@ -1793,7 +1793,7 @@ func setupAndStartServer() async throws -> Server {
 
     let server = Server(
         name: "SwiftMacOSServerDirect",
-        version: "0.1.18",  // x-release-please-version
+        version: "0.1.19",  // x-release-please-version
         instructions: """
             Every tool call returns a compact text summary. Key fields in the summary:
             - file: path to the full accessibility tree (.txt). Use Grep/Read on the file to find specific elements.
