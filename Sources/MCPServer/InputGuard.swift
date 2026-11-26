@@ -1,6 +1,6 @@
-import Foundation
-import CoreGraphics
 import AppKit
+import CoreGraphics
+import Foundation
 
 /// Error thrown when the user presses Esc to cancel automation.
 struct InputGuardCancelled: Error, LocalizedError {
@@ -62,7 +62,10 @@ final class InputGuard: @unchecked Sendable {
     /// Blocks until the event tap is active and the overlay is shown.
     func engage(message: String = "AI is controlling your computer") {
         lock.lock()
-        guard !_engaged else { lock.unlock(); return }
+        guard !_engaged else {
+            lock.unlock()
+            return
+        }
         _engaged = true
         _cancelled = false
         lock.unlock()
@@ -85,13 +88,18 @@ final class InputGuard: @unchecked Sendable {
         // Start watchdog timer
         startWatchdog()
 
-        fputs("log: InputGuard: engaged — tap \(eventTap != nil ? "active" : "unavailable, input not blocked"), overlay visible\n", stderr)
+        fputs(
+            "log: InputGuard: engaged — tap \(eventTap != nil ? "active" : "unavailable, input not blocked"), overlay visible\n",
+            stderr)
     }
 
     /// Stop blocking user input and hide the overlay.
     func disengage() {
         lock.lock()
-        guard _engaged else { lock.unlock(); return }
+        guard _engaged else {
+            lock.unlock()
+            return
+        }
         _engaged = false
         lock.unlock()
 
@@ -123,14 +131,16 @@ final class InputGuard: @unchecked Sendable {
 
         // kCGHeadInsertEventTap = 0 (Swift overlay doesn't expose the enum case name)
         let headInsert = CGEventTapPlacement(rawValue: 0)!
-        guard let tap = CGEvent.tapCreate(
-            tap: .cghidEventTap,
-            place: headInsert,
-            options: .defaultTap,
-            eventsOfInterest: mask,
-            callback: inputGuardCallback,
-            userInfo: refcon
-        ) else {
+        guard
+            let tap = CGEvent.tapCreate(
+                tap: .cghidEventTap,
+                place: headInsert,
+                options: .defaultTap,
+                eventsOfInterest: mask,
+                callback: inputGuardCallback,
+                userInfo: refcon
+            )
+        else {
             fputs("error: InputGuard: failed to create CGEventTap (check Accessibility permissions)\n", stderr)
             // keep _engaged so disengage() still removes the overlay
             return
@@ -164,7 +174,8 @@ final class InputGuard: @unchecked Sendable {
         let timer = DispatchSource.makeTimerSource(queue: .global())
         timer.schedule(deadline: .now() + watchdogTimeout)
         timer.setEventHandler { [weak self] in
-            fputs("warning: InputGuard: watchdog fired after \(self?.watchdogTimeout ?? 0)s — auto-disengaging\n", stderr)
+            fputs(
+                "warning: InputGuard: watchdog fired after \(self?.watchdogTimeout ?? 0)s — auto-disengaging\n", stderr)
             self?.disengage()
         }
         timer.resume()
@@ -181,7 +192,7 @@ final class InputGuard: @unchecked Sendable {
     private func buildAndShowOverlay(message: String) {
         // Ensure NSApplication is set up (no-op if already initialized)
         let app = NSApplication.shared
-        app.setActivationPolicy(.accessory) // Don't show in dock or Cmd+Tab
+        app.setActivationPolicy(.accessory)  // Don't show in dock or Cmd+Tab
 
         let screenFrame = NSScreen.main?.frame ?? NSRect(x: 0, y: 0, width: 1920, height: 1080)
 
@@ -293,11 +304,11 @@ private func inputGuardCallback(
     refcon: UnsafeMutableRawPointer?
 ) -> Unmanaged<CGEvent>? {
     guard let refcon = refcon else { return Unmanaged.passUnretained(event) }
-    let guard_ = Unmanaged<InputGuard>.fromOpaque(refcon).takeUnretainedValue()
+    let inputGuard = Unmanaged<InputGuard>.fromOpaque(refcon).takeUnretainedValue()
 
     // Handle system tap-disable events
     if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
-        guard_.reEnableTapIfNeeded(type: type)
+        inputGuard.reEnableTapIfNeeded(type: type)
         return Unmanaged.passUnretained(event)
     }
 
@@ -314,9 +325,9 @@ private func inputGuardCallback(
         let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
         let flags = event.flags
         let modifierMask: CGEventFlags = [.maskCommand, .maskControl, .maskAlternate, .maskShift]
-        if keyCode == 53 && flags.intersection(modifierMask).isEmpty {
-            guard_.handleEscPressed()
-            return nil // Suppress the Esc event
+        if keyCode == 53 && flags.isDisjoint(with: modifierMask) {
+            inputGuard.handleEscPressed()
+            return nil  // Suppress the Esc event
         }
     }
 

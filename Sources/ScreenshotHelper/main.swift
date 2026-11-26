@@ -4,14 +4,15 @@
 ///
 /// Usage: screenshot-helper <windowID> <outputPath> [--click <x>,<y> --bounds <x>,<y>,<w>,<h>]
 
-import Foundation
-import CoreGraphics
 import AppKit
+import CoreGraphics
+import Foundation
 
 func main() -> Int32 {
     let args = CommandLine.arguments
     guard args.count >= 3,
-          let windowID = CGWindowID(args[1]) else {
+        let windowID = CGWindowID(args[1])
+    else {
         fputs("usage: screenshot-helper <windowID> <outputPath> [--click <x>,<y> --bounds <x>,<y>,<w>,<h>]\n", stderr)
         return 1
     }
@@ -19,8 +20,8 @@ func main() -> Int32 {
     let outputPath = args[2]
 
     // Parse optional click point and window bounds
-    var clickPoint: CGPoint? = nil
-    var windowRect: CGRect? = nil
+    var clickPoint: CGPoint?
+    var windowRect: CGRect?
 
     var i = 3
     while i < args.count {
@@ -42,7 +43,10 @@ func main() -> Int32 {
     }
 
     // Capture the window image
-    guard let image = CGWindowListCreateImage(.null, .optionIncludingWindow, windowID, [.boundsIgnoreFraming, .bestResolution]) else {
+    guard
+        let image = CGWindowListCreateImage(
+            .null, .optionIncludingWindow, windowID, [.boundsIgnoreFraming, .bestResolution])
+    else {
         fputs("error: CGWindowListCreateImage failed for window \(windowID)\n", stderr)
         return 1
     }
@@ -58,9 +62,11 @@ func main() -> Int32 {
         let localY = (clickPoint.y - windowRect.origin.y) * scaleY
 
         let colorSpace = CGColorSpaceCreateDeviceRGB()
-        if let ctx = CGContext(data: nil, width: image.width, height: image.height,
-                               bitsPerComponent: 8, bytesPerRow: 0, space: colorSpace,
-                               bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) {
+        if let ctx = CGContext(
+            data: nil, width: image.width, height: image.height,
+            bitsPerComponent: 8, bytesPerRow: 0, space: colorSpace,
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+        {
             ctx.draw(image, in: CGRect(x: 0, y: 0, width: imageWidth, height: imageHeight))
 
             // Flip Y for CoreGraphics drawing (origin is bottom-left)

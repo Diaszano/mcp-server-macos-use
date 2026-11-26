@@ -1,6 +1,7 @@
 import CoreGraphics
 import MCP
 import Testing
+
 @testable import mcp_server_macos_use
 
 struct ArgumentParsingTests {

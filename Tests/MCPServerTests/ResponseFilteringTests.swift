@@ -1,7 +1,11 @@
 import Foundation
-import Testing
 import MacosUseSDK
+import Testing
+
 @testable import mcp_server_macos_use
+
+// Fixtures decode literal JSON, so a failure should crash the test.
+// swiftlint:disable force_try
 
 // SDK types have no public memberwise init, so tests build them from JSON.
 func element(_ json: String) -> ElementData {
@@ -9,7 +13,8 @@ func element(_ json: String) -> ElementData {
 }
 
 func response(_ elements: [ElementData]) -> ResponseData {
-    let stats = #"{"count":0,"excluded_count":0,"excluded_non_interactable":0,"excluded_no_text":0,"with_text_count":0,"without_text_count":0,"visible_elements_count":0,"truncated":false,"role_counts":{}}"#
+    let stats =
+        #"{"count":0,"excluded_count":0,"excluded_non_interactable":0,"excluded_no_text":0,"with_text_count":0,"without_text_count":0,"visible_elements_count":0,"truncated":false,"role_counts":{}}"#
     let els = String(data: try! JSONEncoder().encode(elements), encoding: .utf8)!
     let json = #"{"app_name":"T","elements":\#(els),"stats":\#(stats),"processing_time_seconds":"0"}"#
     return try! JSONDecoder().decode(ResponseData.self, from: Data(json.utf8))
@@ -34,14 +39,15 @@ struct ResponseFilteringTests {
         let movedBefore = element(#"{"role":"AXButton","text":"Move","x":0,"y":50,"width":40,"height":20}"#)
         let movedAfter = element(#"{"role":"AXButton","text":"Move","x":5,"y":50,"width":40,"height":20}"#)
         let diffJSON = """
-        {"added":[\(enc(scrollBar)),\(enc(ok))],"removed":[],
-         "modified":[{"before":\(enc(movedBefore)),"after":\(enc(movedAfter)),
-           "changes":[{"attributeName":"x","oldValue":"0","newValue":"5"}]}]}
-        """
+            {"added":[\(enc(scrollBar)),\(enc(ok))],"removed":[],
+             "modified":[{"before":\(enc(movedBefore)),"after":\(enc(movedAfter)),
+               "changes":[{"attributeName":"x","oldValue":"0","newValue":"5"}]}]}
+            """
         let diff = try JSONDecoder().decode(TraversalDiff.self, from: Data(diffJSON.utf8))
-        let result = ActionResult(traversalBefore: response([movedBefore]),
-                                  traversalAfter: response([scrollBar, ok, movedAfter]),
-                                  traversalDiff: diff)
+        let result = ActionResult(
+            traversalBefore: response([movedBefore]),
+            traversalAfter: response([scrollBar, ok, movedAfter]),
+            traversalDiff: diff)
         let toolResponse = buildToolResponse(result, hasDiff: true)
         #expect(toolResponse.diff?.added.map(\.text) == ["OK"])
         #expect(toolResponse.diff?.modified.isEmpty == true)
@@ -51,3 +57,4 @@ struct ResponseFilteringTests {
         String(data: try! JSONEncoder().encode(e), encoding: .utf8)!
     }
 }
+// swiftlint:enable force_try
